@@ -22,6 +22,8 @@
 
 (def world-width 1280)
 (def world-height 800)
+(def update-interval-ms 15)
+(def swipe-damping-factor 1)
 
 ;; SVG setup
 
@@ -102,6 +104,19 @@
                                   (update :camera-x + dx)
                                   (update :camera-y + dy))))
 
+;; Math
+
+(def sqrt (.-sqrt js/Math))
+
+(defn dist-sq [x y]
+  (+ (* x x) (* y y)))
+
+(def dist (comp sqrt dist-sq))
+
+(defn vector-with-length [l x y]
+  (let [factor (/ l (dist x y))]
+    [(* factor x) (* factor y)]))
+
 ;; Layout
 
 (defn get-force-layout []
@@ -157,6 +172,8 @@
 
 ;; Reactive
 
+(def tick-observable (js/Rx.Observable.interval update-interval-ms))
+
 ;; Arrow keys
 
 (def key-down-observable (.fromEvent rx-observable js/document "keydown"))
@@ -181,7 +198,7 @@
   (-> arrow-keys-observable
       (.flatMapLatest (fn [arrows] (if (empty? arrows)
                                      (.empty rx-observable)
-                                     (-> rx-observable (.interval 15) (.map (constantly arrows))))))
+                                     (-> tick-observable (.map (constantly arrows))))))
       (.subscribe
         (fn [arrows]
           (let [dx (+ (if (arrows :left) -10 0) (if (arrows :right) 10 0))
@@ -193,18 +210,22 @@
 (defn hammer-manager [svg]
   (let [manager (js/Hammer.Manager. (.node svg))]
     (.add manager (js/Hammer.Pan.))
+    (-> manager (.add (js/Hammer.Swipe.))
+        (.recognizeWith (.get manager "pan")))
     manager))
 
-(defn pan-observable [svg]
-  (let [manager (hammer-manager svg)]
-    (.create
-      rx-observable
-      (fn [observer]
-        (.on manager "panstart panmove"
-             (fn [e] (.onNext observer e)))))))
+(defn gesture-observable [manager svg gesture]
+  (.create rx-observable
+           (fn [observer] (.on manager gesture #(.onNext observer %)))))
 
-(defn pan-deltas-observable [svg]
-  (-> (pan-observable svg)
+;; Gestures - pan
+
+(defn pan-observable [manager svg]
+  (gesture-observable manager svg "panstart panmove"))
+
+
+(defn pan-deltas-observable [manager svg]
+  (-> (pan-observable manager svg)
       (.bufferWithCount 2 1)
       (.map (fn [es] (let [[e1 e2] es
                            e1-center (.-center e1)
@@ -214,10 +235,53 @@
                          {:dx (- (.-x e1-center) (.-x e2-center))
                           :dy (- (.-y e1-center) (.-y e2-center))}))))))
 
-(defn move-camera-on-pan! [current-state]
+(defn move-camera-on-pan! [manager current-state]
   (.subscribe
-    (pan-deltas-observable (:svg @current-state))
+    (pan-deltas-observable manager (:svg @current-state))
     (fn [d] (let [{:keys [dx dy]} d] (move-camera! current-state dx dy)))))
+
+;; Gestures - swipe
+
+(defn swipe-observable 
+  "A stream of velocity vectors, one per swipe."
+  [manager svg]
+  (.map (gesture-observable manager svg "swipe")
+        (fn [e] {:vx (.-velocityX e), :vy (.-velocityY e)})))
+
+(defn scroll-end-observable [svg]
+  (let [elem (.node svg)]
+    (-> rx-observable (.fromEvent elem "mousedown")
+        (.merge (-> rx-observable (.fromEvent elem "touchstart")))
+        (.map (constantly :scroll-end)))))
+
+(defn dampen [x y]
+  (let [length (dist x y)]
+    (vector-with-length (- length swipe-damping-factor) x y)))
+
+(defn swipe-displacements-observable [manager svg]
+  (let [swipes (swipe-observable manager svg)
+        scroll-ends (scroll-end-observable svg)
+        actions (.merge swipes scroll-ends)]
+    (.flatMapLatest
+      actions
+      (fn [a]
+        (if (= a :scroll-end)
+          (.empty rx-observable)
+          (let [{:keys [vx vy]} a]
+            (.generateWithRelativeTime rx-observable
+              {:dx (* update-interval-ms (or vx 0)), :dy (* update-interval-ms (or vy 0))}
+              (fn [d] 
+                (> (dist-sq (:dx d) (:dy d)) 10))
+              (fn [d] (let [[x y] (apply dampen (map d [:dx :dy]))] {:dx x :dy y}))
+              identity
+              (constantly update-interval-ms))))))))
+
+
+(defn move-camera-on-swipe! [manager current-state]
+  (.subscribe
+    (swipe-displacements-observable manager (:svg @current-state))
+    (fn [d] 
+      (let [{:keys [dx dy]} d] (move-camera! current-state dx dy)))))
 
 ;; Exported function to do magic
 
@@ -226,9 +290,11 @@
         width (.-clientWidth element)
         height (.-clientHeight element)
         svg (setup-svg! selector width height)
-        current-state (atom (initial-state svg width height))]
+        current-state (atom (initial-state svg width height))
+        gesture-manager (hammer-manager svg)]
     (sync-graph! @current-state)
     (load-nodes "miserables.json" (fn [nodes]
                                     (swap-state! current-state assoc :nodes nodes)))
     (move-camera-on-arrow-keys! current-state)
-    (move-camera-on-pan! current-state)))
+    (move-camera-on-pan! gesture-manager current-state)
+    (move-camera-on-swipe! gesture-manager current-state)))
