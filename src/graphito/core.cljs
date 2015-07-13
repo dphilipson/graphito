@@ -152,25 +152,41 @@
 
 ;; Reactive
 
-(def arrow-codes {37 :left, 38 :up, 39 :right, 40 :down})
+;; Arrow keys
 
-(defn get-arrow-key-observable []
-  (-> rx-observable (.fromEvent js/document "keyup")
-      (.map #(arrow-codes (.-keyCode %)))))
+(def key-down-observable (.fromEvent rx-observable js/document "keydown"))
+(def key-up-observable (.fromEvent rx-observable js/document "keyup"))
+(def keys-observable
+  "An observable of what keys are currently pressed"
+  (-> key-down-observable (.merge key-up-observable)
+      (.scan (fn [ks, e]
+               (case (.-type e)
+                 "keydown" (conj ks (.-keyCode e))
+                 "keyup" (disj ks (.-keyCode e))))
+             #{})
+      (.distinctUntilChanged)))
+
+(def arrow-codes {37 :left, 38 :up, 39 :right, 40 :down
+                  65 :left, 87 :up, 68 :right, 83 :down})
+
+(def arrow-keys-observable
+  (.map keys-observable #(->> % (map arrow-codes) (filter (comp not nil?)) (into #{}))))
 
 (defn move-camera-on-arrow-keys! [current-state]
-  (.subscribe
-    (get-arrow-key-observable)
-    (fn [direction]
-      (let [[dx dy] (case direction
-                      :left [-10 0]
-                      :up [0 -10]
-                      :right [10 0]
-                      :down [0 10])]
-        (swap-state! current-state (fn [s]
-                                     (-> s
-                                         (update :camera-x + dx)
-                                         (update :camera-y + dy))))))))
+  (-> arrow-keys-observable
+      (.flatMapLatest (fn [arrows] (if (empty? arrows)
+                                     (.empty rx-observable)
+                                     (-> rx-observable (.interval 15) (.map (constantly arrows))))))
+      (.subscribe
+        (fn [arrows]
+          (let [dx (+ (if (arrows :left) -10 0) (if (arrows :right) 10 0))
+                dy (+ (if (arrows :up) -10 0) (if (arrows :down) 10 0))]
+            (swap-state! current-state (fn [s]
+                                         (-> s
+                                             (update :camera-x + dx)
+                                             (update :camera-y + dy)))))))))
+
+
 
 ;; Exported function to do magic
 
