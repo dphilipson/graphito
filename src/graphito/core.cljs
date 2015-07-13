@@ -89,6 +89,14 @@
    :camera-y 0
    :nodes []})
 
+(defn swap-state! [current-state f & args]
+  (apply swap! current-state f args)
+  (sync-graph! @current-state))
+
+(defn update-state [current-state k f & args]
+  (apply swap! current-state update k f args)
+  (sync-graph! @current-state))
+
 ;; Layout
 
 (defn get-force-layout []
@@ -150,6 +158,20 @@
   (-> rx-observable (.fromEvent js/document "keyup")
       (.map #(arrow-codes (.-keyCode %)))))
 
+(defn move-camera-on-arrow-keys! [current-state]
+  (.subscribe
+    (get-arrow-key-observable)
+    (fn [direction]
+      (let [[dx dy] (case direction
+                      :left [-10 0]
+                      :up [0 -10]
+                      :right [10 0]
+                      :down [0 10])]
+        (swap-state! current-state (fn [s]
+                                     (-> s
+                                         (update :camera-x + dx)
+                                         (update :camera-y + dy))))))))
+
 ;; Exported function to do magic
 
 (defn sync-after [f current-state]
@@ -162,25 +184,8 @@
         width (.-clientWidth element)
         height (.-clientHeight element)
         svg (setup-svg! selector width height)
-        current-state (atom (initial-state svg width height))
-        sync-after (fn [f]
-                     (fn [& args]
-                       (apply f args)
-                       (sync-graph! @current-state)))
-        update-state! (sync-after (partial swap! current-state update))
-        swap-state! (sync-after (partial swap! current-state))]
+        current-state (atom (initial-state svg width height))]
     (sync-graph! @current-state)
     (load-nodes "miserables.json" (fn [nodes]
-                                    (swap-state! assoc :nodes nodes)))
-    (.subscribe
-      (get-arrow-key-observable)
-      (fn [direction]
-        (let [[dx dy] (case direction
-                        :left [-10 0]
-                        :up [0 -10]
-                        :right [10 0]
-                        :down [0 10])]
-          (swap-state! (fn [s]
-                         (-> s
-                             (update :camera-x + dx)
-                             (update :camera-y + dy)))))))))
+                                    (swap-state! current-state assoc :nodes nodes)))
+    (move-camera-on-arrow-keys! current-state)))
