@@ -16,6 +16,7 @@
 ;; External library modules
 
 (def d3 js/d3)
+(def rx-observable (.-Observable js/Rx))
 
 ;; Constants
 
@@ -57,28 +58,36 @@
     {:x (+ view-center-x (- x camera-x))
      :y (+ view-center-y (- y camera-y))}))
 
-(defn setup-graph! [state]
+(defn view-radius [state x y] 10)
+
+(defn sync-graph! [state]
   (let [{:keys [svg nodes]} state
-        view-position_ (fn [d] (view-position state (:x d) (:y d)))]
+        _view-position (fn [d] (view-position state (:x d) (:y d)))
+        view-x (comp :x _view-position)
+        view-y (comp :y _view-position)
+        _view-radius (fn [d] (view-radius state (:x d) (:y d)))]
     (-> svg
         (.selectAll ".node")
         (.data (apply array nodes))
+        (.attr "cx" view-x)
+        (.attr "cy" view-y)
+        (.attr "r" view-radius)
         .enter
         (.append "circle")
         (.attr "class" "node")
-        (.attr "cx" (comp :x view-position_))
-        (.attr "cy" (comp :y view-position_))
-        (.attr "r" 10))))
+        (.attr "cx" (comp view-x))
+        (.attr "cy" (comp view-y))
+        (.attr "r" view-radius))))
 
 ;; State management
 
-(defn initial-state [svg width height nodes]
+(defn initial-state [svg width height]
   {:svg svg
    :view-width width
    :view-height height
    :camera-x 0
    :camera-y 0
-   :nodes nodes})
+   :nodes []})
 
 ;; Layout
 
@@ -126,21 +135,52 @@
   (.json d3 json-file
          (fn [data]
            (do-layout! data)
-           (let [raw-nodes (p "raw-nodes:" js->clj (.-nodes data) :keywordize-keys true)
-                 nodes (p "nodes:" map (fn [raw-node]
+           (let [raw-nodes (js->clj (.-nodes data) :keywordize-keys true)
+                 nodes (map (fn [raw-node]
                               (node (:name raw-node)
                                     (:x raw-node)
                                     (:y raw-node))) raw-nodes)]
              (callback nodes)))))
 
+;; Reactive
+
+(def arrow-codes {37 :left, 38 :up, 39 :right, 40 :down})
+
+(defn get-arrow-key-observable []
+  (-> rx-observable (.fromEvent js/document "keyup")
+      (.map #(arrow-codes (.-keyCode %)))))
+
 ;; Exported function to do magic
+
+(defn sync-after [f current-state]
+  (fn [& args]
+    (apply f args)
+    (sync-graph! @current-state)))
 
 (defn ^:export inhabit [selector]
   (let [element (-> d3 (.select selector) .node)
         width (.-clientWidth element)
         height (.-clientHeight element)
-        svg (setup-svg! selector width height)]
-    (load-nodes "miserables.json"
-                (fn [nodes]
-                  (let [state (initial-state svg width height nodes)]
-                    (setup-graph! state))))))
+        svg (setup-svg! selector width height)
+        current-state (atom (initial-state svg width height))
+        sync-after (fn [f]
+                     (fn [& args]
+                       (apply f args)
+                       (sync-graph! @current-state)))
+        update-state! (sync-after (partial swap! current-state update))
+        swap-state! (sync-after (partial swap! current-state))]
+    (sync-graph! @current-state)
+    (load-nodes "miserables.json" (fn [nodes]
+                                    (swap-state! assoc :nodes nodes)))
+    (.subscribe
+      (get-arrow-key-observable)
+      (fn [direction]
+        (let [[dx dy] (case direction
+                        :left [-10 0]
+                        :up [0 -10]
+                        :right [10 0]
+                        :down [0 10])]
+          (swap-state! (fn [s]
+                         (-> s
+                             (update :camera-x + dx)
+                             (update :camera-y + dy)))))))))
