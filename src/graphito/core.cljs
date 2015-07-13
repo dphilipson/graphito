@@ -13,6 +13,8 @@
     (println message (apply f args))
     ret))
 
+;; External library modules
+
 (def d3 js/d3)
 
 ;; Constants
@@ -45,16 +47,27 @@
 
 ;; D3 magic
 
+(defn view-position
+  "Given the actual position of a node (in world coordinates), return the
+  position of the node in screen coordinates according to the state."
+  [state x y]
+  (let [{:keys [view-width view-height camera-x camera-y]} state
+        view-center-x (/ view-width 2)
+        view-center-y (/ view-height 2)]
+    {:x (+ view-center-x (- x camera-x))
+     :y (+ view-center-y (- y camera-y))}))
+
 (defn setup-graph! [state]
-  (let [{:keys [svg nodes]} state]
+  (let [{:keys [svg nodes]} state
+        view-position_ (fn [d] (view-position state (:x d) (:y d)))]
     (-> svg
         (.selectAll ".node")
         (.data (apply array nodes))
         .enter
         (.append "circle")
         (.attr "class" "node")
-        (.attr "cx" #(:x %))
-        (.attr "cy" #(:y %))
+        (.attr "cx" (comp :x view-position_))
+        (.attr "cy" (comp :y view-position_))
         (.attr "r" 10))))
 
 ;; State management
