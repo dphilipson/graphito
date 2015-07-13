@@ -93,9 +93,14 @@
   (apply swap! current-state f args)
   (sync-graph! @current-state))
 
-(defn update-state [current-state k f & args]
+(defn update-state! [current-state k f & args]
   (apply swap! current-state update k f args)
   (sync-graph! @current-state))
+
+(defn move-camera! [current-state dx dy]
+  (swap-state! current-state #(-> %
+                                  (update :camera-x + dx)
+                                  (update :camera-y + dy))))
 
 ;; Layout
 
@@ -181,19 +186,40 @@
         (fn [arrows]
           (let [dx (+ (if (arrows :left) -10 0) (if (arrows :right) 10 0))
                 dy (+ (if (arrows :up) -10 0) (if (arrows :down) 10 0))]
-            (swap-state! current-state (fn [s]
-                                         (-> s
-                                             (update :camera-x + dx)
-                                             (update :camera-y + dy)))))))))
+            (move-camera! current-state dx dy))))))
 
+;; Gestures
 
+(defn hammer-manager [svg]
+  (let [manager (js/Hammer.Manager. (.node svg))]
+    (.add manager (js/Hammer.Pan.))
+    manager))
+
+(defn pan-observable [svg]
+  (let [manager (hammer-manager svg)]
+    (.create
+      rx-observable
+      (fn [observer]
+        (.on manager "panstart panmove"
+             (fn [e] (.onNext observer e)))))))
+
+(defn pan-deltas-observable [svg]
+  (-> (pan-observable svg)
+      (.bufferWithCount 2 1)
+      (.map (fn [es] (let [[e1 e2] es
+                           e1-center (.-center e1)
+                           e2-center (.-center e2)]
+                       (if (= (.-type e2) "panstart")
+                         {:dx 0 :dy 0}
+                         {:dx (- (.-x e1-center) (.-x e2-center))
+                          :dy (- (.-y e1-center) (.-y e2-center))}))))))
+
+(defn move-camera-on-pan! [current-state]
+  (.subscribe
+    (pan-deltas-observable (:svg @current-state))
+    (fn [d] (let [{:keys [dx dy]} d] (move-camera! current-state dx dy)))))
 
 ;; Exported function to do magic
-
-(defn sync-after [f current-state]
-  (fn [& args]
-    (apply f args)
-    (sync-graph! @current-state)))
 
 (defn ^:export inhabit [selector]
   (let [element (-> d3 (.select selector) .node)
@@ -204,4 +230,5 @@
     (sync-graph! @current-state)
     (load-nodes "miserables.json" (fn [nodes]
                                     (swap-state! current-state assoc :nodes nodes)))
-    (move-camera-on-arrow-keys! current-state)))
+    (move-camera-on-arrow-keys! current-state)
+    (move-camera-on-pan! current-state)))
