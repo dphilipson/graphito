@@ -6,62 +6,61 @@
 
 (enable-console-print!)
 
-(def $ js/$)
-(def Raphael js/Raphael)
+(def d3 js/d3)
 
-;; Paper setup
+;; SVG setup
 
-(defn disable-touchmove! [$element]
-  (.on $element "touchmove" #(.preventDefault %)))
+(defn disable-touchmove! [container]
+  (.on container "touchmove" #(-> d3 .-event .preventDefault)))
 
-(defn add-background! [paper width height]
-  (let [rect (.rect paper 0 0 width height)]
-    (.attr rect (js-obj "fill" "270-#ccc-#888"
-                        "stroke" 0))))
+(defn add-background! [svg width height]
+  (-> svg
+      (.append "rect")
+      (.attr "width" width)
+      (.attr "height" height)
+      (.attr "fill" "#ccc")
+      (.attr "stroke" 0)))
 
-(defn setup-paper! [$container width height]
-  (disable-touchmove! $container)
-  (let [containerElem (.get $container 0)
-        paper (Raphael containerElem width height)]
-    (add-background! paper width height)
-    paper))
+(defn setup-svg! [selector width height]
+  (let [container (.select d3 selector)
+        svg (-> container
+                (.append "svg")
+                (.attr "width" width)
+                (.attr "height" height))]
+    (disable-touchmove! container)
+    (add-background! svg width height)
+    svg))
+
+;; D3 magic
+
+(defn setup-graph! [state]
+  (let [{:keys [svg nodes]} state]
+    (-> svg
+        (.selectAll ".node")
+        (.data (apply array nodes))
+        .enter
+        (.append "circle")
+        (.attr "class" "node")
+        (.attr "cx" #(:x %))
+        (.attr "cy" #(:y %))
+        (.attr "r" 32))))
 
 ;; State management
 
-(defn initial-state [paper width height]
-  {:paper paper
+(defn initial-state [svg width height]
+  {:svg svg
    :view-width width
    :view-height height
    :camera-x 0
    :camera-y 0
-   :nodes []})
-
-(defn create-node-element!
-  "Adds a new node element to the paper and returns it."
-  [paper]
-  (let [elem (.circle paper 20 20 10)]
-    (.attr elem (js-obj "fill" "blue"
-                        "stroke" "gray"
-                        "stroke-width" 2))
-    elem))
-
-(defn add-node!
-  "Adds a new node element to the paper and returns an updated state which
-  references this element." 
-  [state title x y]
-  (let [elem (create-node-element! (:paper state))
-        new-node {:title title
-                  :x x
-                  :y y
-                  :element elem}]
-    (update state :nodes conj new-node)))
+   :nodes [{:x 40 :y 40}]})
 
 ;; Exported function to do magic
 
 (defn ^:export inhabit [selector]
-  (let [$container ($ selector)
-        width (.width $container)
-        height (.height $container)
-        paper (setup-paper! $container width height)
-        state (initial-state paper width height)]
-    (add-node! state "Hello Node" 0 0)))
+  (let [element (-> d3 (.select selector) .node)
+        width (.-clientWidth element)
+        height (.-clientHeight element)
+        svg (setup-svg! selector width height)
+        state (initial-state svg width height)]
+    (setup-graph! state)))
