@@ -150,11 +150,17 @@
                           :project-radius (constantly (* zoom-out-scale max-radius))
                           :project-opacity (constantly 1)})
 
-(defn sync-graph! [state]
+(defn projectors-for-state [state]
+  (if (= (:projection state) :fisheye) fisheye-projectors zoom-out-projectors))
+
+(defn sync-graph! [state & {:keys [animate]}]
   (let [{:keys [svg nodes links camera-pos view-size]} state
         {:keys [project-displacement
                 project-radius
-                project-opacity]} fisheye-projectors
+                project-opacity]} (projectors-for-state state)
+        maybe-transition (if animate
+                           #(-> % .transition (.duration 500))
+                           identity)
         positions (mapv (fn [node]
                           (view-position state
                                          (:pos node)
@@ -169,16 +175,18 @@
           (.style "stroke" "#C9CBCB")
           (.style "stroke-width" 3))
       (-> link-selection
+          maybe-transition
           (.attr "x1" #(-> % :source positions :x))
           (.attr "y1" #(-> % :source positions :y))
           (.attr "x2" #(-> % :target positions :x))
           (.attr "y2" #(-> % :target positions :y))))
-    (let [node-selection #(-> svg (.selectAll ".node") (.data (apply array nodes)))]
-      (-> (node-selection) .enter
+    (let [node-selection (-> svg (.selectAll ".node") (.data (apply array nodes)))]
+      (-> node-selection .enter
         (.append "circle")
         (.attr "class" "node")
         (.style "fill" "#777A7A"))
-      (-> (node-selection)
+      (-> node-selection
+        maybe-transition
         (.attr "cx" (fn [d i] (:x (positions i))))
         (.attr "cy" (fn [d i] (:y (positions i))))
         (.attr "r" (fn [d i] (project-radius (distances-from-camera i))))
@@ -191,7 +199,8 @@
    :view-size (math-vec width height)
    :camera-pos (math-vec 0 0)
    :nodes []
-   :edges []})
+   :edges []
+   :projection :fisheye}) ; Can be :fisheye or :zoom-out
 
 (defn swap-state! [current-state f & args]
   (apply swap! current-state f args)
@@ -203,6 +212,10 @@
 
 (defn move-camera! [current-state d]
   (update-state! current-state :camera-pos add-vec d))
+
+(defn set-projection! [current-state projection]
+  (swap! current-state assoc :projection projection)
+  (sync-graph! @current-state :animate true))
 
 ;; Layout
 
@@ -395,6 +408,16 @@
       (.filter #(< % 0.5))
       (.subscribe #(js/alert "TODO: zoom out"))))
 
+;; Temporary animation test function
+
+(defn zoom-in-out-on-interval! [current-state]
+  ((fn f [projection]
+     (.setTimeout js/window
+                  (fn []
+                    (set-projection! current-state projection)
+                    (f (if (= projection :fisheye) :zoom-out :fisheye)))
+                  2000)) :zoom-out))
+
 ;; Exported function to do magic
 
 (defn ^:export inhabit [selector]
@@ -412,4 +435,7 @@
                 (move-camera-on-arrow-keys! current-state)
                 (move-camera-on-pan! gesture-manager current-state)
                 (move-camera-on-swipe! gesture-manager current-state)
-                (zoom-out-on-pinch! gesture-manager current-state)))
+                (zoom-out-on-pinch! gesture-manager current-state)
+                (zoom-in-out-on-interval! current-state)))
+
+
