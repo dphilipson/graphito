@@ -22,9 +22,18 @@
 
 (def world-width 1280)
 (def world-height 800)
+
 (def update-interval-ms 15)
+
 (def swipe-damping-factor 1)
 (def min-slide-speed-sq 16)
+
+(def safe-zone-size 0.2)
+(def max-radius 32)
+(def min-radius 2)
+(def min-size-distance 2000)
+(def edge-buffer (+ min-radius 3))
+
 
 ;; SVG setup
 
@@ -49,7 +58,38 @@
     (add-background! svg width height)
     svg))
 
+
+;; Math
+
+(def sqrt (.-sqrt js/Math))
+(def tan (.-tan js/Math))
+(def atan (.-atan js/Math))
+(def pi (.-PI js/Math))
+(def pi2 (/ pi 2))
+
+(defn dist-sq [x y]
+  (+ (* x x) (* y y)))
+
+(def dist (comp sqrt dist-sq))
+
+(defn vector-with-length [l x y]
+  (let [factor (/ l (dist x y))]
+    [(* factor x) (* factor y)]))
+
+
 ;; D3 magic
+
+(defn project-displacement [d safe-distance max-distance]
+  (let [project-positive-displacement
+        (fn [d]
+          (if (< d safe-distance)
+            d
+            (+ safe-distance
+               (* (/ (- max-distance safe-distance) pi2)
+                  (atan (- d safe-distance))))))]
+    (if (pos? d)
+      (project-positive-displacement d)
+      (- (project-positive-displacement (- d))))))
 
 (defn view-position
   "Given the actual position of a node (in world coordinates), return the
@@ -57,9 +97,21 @@
   [state x y]
   (let [{:keys [view-width view-height camera-x camera-y]} state
         view-center-x (/ view-width 2)
-        view-center-y (/ view-height 2)]
-    {:x (+ view-center-x (- x camera-x))
-     :y (+ view-center-y (- y camera-y))}))
+        view-center-y (/ view-height 2)
+        safe-distance-x (* safe-zone-size view-center-x)
+        safe-distance-y (* safe-zone-size view-center-y)
+        max-distance-x (- view-center-x edge-buffer)
+        max-distance-y (- view-center-y edge-buffer)
+        true-x-displacement (- x camera-x)
+        true-y-displacement (- y camera-y)
+        projected-x-displacement (project-displacement true-x-displacement
+                                                       safe-distance-x
+                                                       max-distance-x)
+        projected-y-displacement (project-displacement true-y-displacement
+                                                       safe-distance-y
+                                                       max-distance-y)]
+    {:x (+ view-center-x projected-x-displacement)
+     :y (+ view-center-y projected-y-displacement)}))
 
 (defn view-radius [state x y] 32)
 
@@ -104,19 +156,6 @@
   (swap-state! current-state #(-> %
                                   (update :camera-x + dx)
                                   (update :camera-y + dy))))
-
-;; Math
-
-(def sqrt (.-sqrt js/Math))
-
-(defn dist-sq [x y]
-  (+ (* x x) (* y y)))
-
-(def dist (comp sqrt dist-sq))
-
-(defn vector-with-length [l x y]
-  (let [factor (/ l (dist x y))]
-    [(* factor x) (* factor y)]))
 
 ;; Layout
 
