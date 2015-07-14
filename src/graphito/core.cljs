@@ -47,7 +47,7 @@
       (.append "rect")
       (.attr "width" width)
       (.attr "height" height)
-      (.attr "fill" "#ccc")
+      (.attr "fill" "#EDF0F2")
       (.attr "stroke" 0)))
 
 (defn setup-svg! [selector width height]
@@ -153,8 +153,8 @@
         .enter
         (.append "line")
         (.attr "class" "link")
-        (.style "stroke" "black")
-        (.style "stroke-width" 1)
+        (.style "stroke" "#C9CBCB")
+        (.style "stroke-width" 3)
         (.attr "x1" #(-> % :source positions :x))
         (.attr "y1" #(-> % :source positions :y))
         (.attr "x2" #(-> % :target positions :x))
@@ -167,6 +167,7 @@
         .enter
         (.append "circle")
         (.attr "class" "node")
+        (.style "fill" "#777A7A")
         (.attr "cx" (fn [d i] (:x (positions i))))
         (.attr "cy" (fn [d i] (:y (positions i))))
         (.attr "r" (fn [d i] (project-radius (distances-from-camera i)))))))
