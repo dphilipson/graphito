@@ -7,5 +7,8 @@
     {:output-to "release/graphito.js"
      :output-dir "release"
      :optimizations :advanced
-     :verbose true})
+     :externs ["externs/d3_externs_min.js"
+               "externs/rx.all.min.js"
+               "externs/hammer.min.js"]
+     :verbose false})
   (println "... done. Elapsed" (/ (- (System/nanoTime) start) 1e9) "seconds"))
