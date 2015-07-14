@@ -33,9 +33,8 @@
 (def displacement-factor 1)
 
 (def max-radius 32)
-(def min-radius 2)
-(def edge-buffer (+ min-radius 3))
 
+(def zoom-out-scale 0.25)
 
 ;; SVG setup
 
@@ -123,19 +122,18 @@
     (<= 1.5 t 2.5) (+ 0.875 (/ (- t 1.5) 8))
     :else 1))
 
-(defn view-position [state pos]
+(defn view-position [state pos projector]
   (let [{:keys [view-size camera-pos]} state
         view-center (scalar-multiply view-size 0.5)
         corner-distance (vec-length view-center)
         displacement (subtract-vec pos camera-pos)
         r (scaled-distance-from-camera state pos)
-        projected-r (project-displacement r)]
+        projected-r (projector r)]
     (add-vec view-center
              (scalar-multiply displacement (/ projected-r r)))))
 
 (defn project-radius [t]
-  (+ min-radius (* (- max-radius min-radius)
-                   (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25))))))))
+  (* max-radius (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25)))))))
 
 (defn project-opacity [t]
   (cond
@@ -144,10 +142,23 @@
     (<= 2 t 3) (- 0.75 (* 0.75 (- t 2)))
     :else 0))
 
+(def fisheye-projectors {:project-displacement project-displacement
+                         :project-radius project-radius
+                         :project-opacity project-opacity})
+
+(def zoom-out-projectors {:project-displacement (partial * zoom-out-scale)
+                          :project-radius (constantly (* zoom-out-scale max-radius))
+                          :project-opacity (constantly 1)})
+
 (defn sync-graph! [state]
   (let [{:keys [svg nodes links camera-pos view-size]} state
+        {:keys [project-displacement
+                project-radius
+                project-opacity]} fisheye-projectors
         positions (mapv (fn [node]
-                          (view-position state (:pos node))) nodes)
+                          (view-position state
+                                         (:pos node)
+                                         project-displacement)) nodes)
         distances-from-camera
         (mapv (fn [node]
                 (scaled-distance-from-camera state (:pos node))) nodes)]
