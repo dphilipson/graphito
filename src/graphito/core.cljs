@@ -61,7 +61,7 @@
     {:x (+ view-center-x (- x camera-x))
      :y (+ view-center-y (- y camera-y))}))
 
-(defn view-radius [state x y] 10)
+(defn view-radius [state x y] 32)
 
 (defn sync-graph! [state]
   (let [{:keys [svg nodes]} state
@@ -123,7 +123,7 @@
 (defn get-force-layout []
   (-> d3 .-layout .force
       (.charge -240)
-      (.linkDistance 100)
+      (.linkDistance 40)
       (.size (array world-width world-height))))
 
 (defn do-layout! [data]
@@ -146,11 +146,14 @@
     (let [sum-x (->> data .-nodes js->clj (map #(% "x")) (apply +))
           sum-y (->> data .-nodes js->clj (map #(% "y")) (apply +))
           avg-x (/ sum-x n)
-          avg-y (/ sum-y n)]
+          avg-y (/ sum-y n)
+          ; Nodes are too close together, but the graph has good shape.
+          ; Expand everything.
+          scale-hack 8] 
       (-> data .-nodes
           (.forEach (fn [d]
-                      (aset d "x" (- (.-x d) avg-x))
-                      (aset d "y" (- (.-y d) avg-y))))))
+                      (aset d "x" (* scale-hack (- (.-x d) avg-x)))
+                      (aset d "y" (* scale-hack (- (.-y d) avg-y)))))))
     data))
 
 ;; JSON loading and parsing
