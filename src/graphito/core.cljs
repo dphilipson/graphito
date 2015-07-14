@@ -130,8 +130,8 @@
         displacement (subtract-vec pos camera-pos)
         r (scaled-distance-from-camera state pos)
         projected-r (project-displacement r)]
-      (add-vec view-center
-            (vec-clamp-to-bounds (scalar-multiply displacement (/ projected-r r)) view-center))))
+    (add-vec view-center
+             (vec-clamp-to-bounds (scalar-multiply displacement (/ projected-r r)) view-center))))
 
 (defn project-radius [t]
   (+ min-radius (* (- max-radius min-radius)
@@ -142,13 +142,27 @@
     (project-radius r)))
 
 (defn sync-graph! [state]
-  (let [{:keys [svg nodes]} state
+  (let [{:keys [svg nodes links]} state
         _view-position (fn [d] (view-position state (:pos d)))
         view-x (comp :x _view-position)
         view-y (comp :y _view-position)
         _view-radius (fn [d] (view-radius state (:pos d)))]
-    (-> svg
-        (.selectAll ".node")
+    (-> svg (.selectAll ".link")
+        (.data (apply array links))
+        (.attr "x1" (fn [link] (view-x (nodes (:source link)))))
+        (.attr "y1" (fn [link] (view-y (nodes (:source link)))))
+        (.attr "x2" (fn [link] (view-x (nodes (:target link)))))
+        (.attr "y2" (fn [link] (view-y (nodes (:target link)))))
+        .enter
+        (.append "line")
+        (.attr "class" "link")
+        (.attr "x1" (fn [link] (view-x (nodes (:source link)))))
+        (.attr "y1" (fn [link] (view-y (nodes (:source link)))))
+        (.attr "x2" (fn [link] (view-x (nodes (:target link)))))
+        (.attr "y2" (fn [link] (view-y (nodes (:target link)))))
+        (.style "stroke" "black")
+        (.style "stroke-width" 3))
+    (-> svg (.selectAll ".node")
         (.data (apply array nodes))
         (.attr "cx" view-x)
         (.attr "cy" view-y)
@@ -166,7 +180,8 @@
   {:svg svg
    :view-size (math-vec width height)
    :camera-pos (math-vec 0 0)
-   :nodes []})
+   :nodes []
+   :edges []})
 
 (defn swap-state! [current-state f & args]
   (apply swap! current-state f args)
@@ -223,16 +238,27 @@
   {:title title
    :pos (math-vec x y)})
 
-(defn load-nodes [json-file callback]
+(defn link
+  "Source and target are indexes into the list of nodes."
+  [source target]
+  {:source source :target target})
+
+(defn load-graph [json-file callback]
   (.json d3 json-file
-         (fn [data]
-           (do-layout! data)
-           (let [raw-nodes (js->clj (.-nodes data) :keywordize-keys true)
-                 nodes (map (fn [raw-node]
-                              (node (:name raw-node)
-                                    (:x raw-node)
-                                    (:y raw-node))) raw-nodes)]
-             (callback nodes)))))
+         (fn [raw-data]
+           ;; Running do-layout! modifies the link data to contain full nodes
+           ;;  rather than indices. Hence this ugly ordering.
+           (let [data-links (js->clj (aget raw-data "links"))
+                 links (mapv (fn [data-link]
+                               (link (data-link "source") (data-link "target")))
+                             data-links)]
+             (do-layout! raw-data)
+             (let [data-nodes (js->clj (aget raw-data "nodes"))
+                   nodes (mapv (fn [data-node]
+                                 (node (data-node "name")
+                                       (data-node "x")
+                                       (data-node "y"))) data-nodes)]
+               (callback {:nodes nodes :links links}))))))
 
 ;; Reactive
 
@@ -369,9 +395,11 @@
         current-state (atom (initial-state svg width height))
         gesture-manager (hammer-manager svg)]
     (sync-graph! @current-state)
-    (load-nodes "miserables.json" (fn [nodes]
-                                    (swap-state! current-state assoc :nodes nodes)))
-    (move-camera-on-arrow-keys! current-state)
-    (move-camera-on-pan! gesture-manager current-state)
-    (move-camera-on-swipe! gesture-manager current-state)
-    (zoom-out-on-pinch! gesture-manager current-state)))
+    (load-graph "miserables.json"
+                (fn [graph]
+                  (let [{:keys [nodes links]} graph]
+                    (swap-state! current-state assoc :nodes nodes :links links))))
+                (move-camera-on-arrow-keys! current-state)
+                (move-camera-on-pan! gesture-manager current-state)
+                (move-camera-on-swipe! gesture-manager current-state)
+                (zoom-out-on-pinch! gesture-manager current-state)))
