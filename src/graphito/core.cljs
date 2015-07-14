@@ -24,6 +24,7 @@
 (def world-height 800)
 (def update-interval-ms 15)
 (def swipe-damping-factor 1)
+(def min-slide-speed-sq 16)
 
 ;; SVG setup
 
@@ -212,6 +213,8 @@
     (.add manager (js/Hammer.Pan.))
     (-> manager (.add (js/Hammer.Swipe.))
         (.recognizeWith (.get manager "pan")))
+    (-> manager (.add (js/Hammer.Pinch.))
+        (.recognizeWith (.get manager "pan")))
     manager))
 
 (defn gesture-observable [manager svg gesture]
@@ -271,17 +274,29 @@
             (.generateWithRelativeTime rx-observable
               {:dx (* update-interval-ms (or vx 0)), :dy (* update-interval-ms (or vy 0))}
               (fn [d] 
-                (> (dist-sq (:dx d) (:dy d)) 10))
+                (> (dist-sq (:dx d) (:dy d)) min-slide-speed-sq))
               (fn [d] (let [[x y] (apply dampen (map d [:dx :dy]))] {:dx x :dy y}))
               identity
               (constantly update-interval-ms))))))))
-
 
 (defn move-camera-on-swipe! [manager current-state]
   (.subscribe
     (swipe-displacements-observable manager (:svg @current-state))
     (fn [d] 
       (let [{:keys [dx dy]} d] (move-camera! current-state dx dy)))))
+
+;; Gestures - pinch
+
+(defn pinch-observable
+  "Returns a stream of the scale."
+  [manager svg]
+  (.map (gesture-observable manager svg "pinchmove")
+        #(.-scale %)))
+
+(defn zoom-out-on-pinch! [manager current-state]
+  (-> (pinch-observable manager (:svg @current-state))
+      (.filter #(< % 0.5))
+      (.subscribe #(js/alert "TODO: zoom out"))))
 
 ;; Exported function to do magic
 
@@ -297,4 +312,5 @@
                                     (swap-state! current-state assoc :nodes nodes)))
     (move-camera-on-arrow-keys! current-state)
     (move-camera-on-pan! gesture-manager current-state)
-    (move-camera-on-swipe! gesture-manager current-state)))
+    (move-camera-on-swipe! gesture-manager current-state)
+    (zoom-out-on-pinch! gesture-manager current-state)))
