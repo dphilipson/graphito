@@ -246,9 +246,9 @@
            ;; Running do-layout! modifies the link data to contain full nodes
            ;;  rather than indices. Hence this ugly ordering.
            (let [data-links (js->clj (aget raw-data "links"))
-                 links (mapv (fn [data-link]
-                               (link (data-link "source") (data-link "target")))
-                             data-links)]
+                 links (->> data-links
+                            (filter #(>= (% "value") 4))
+                            (mapv (fn [l] (link (l "source") (l "target")))))]
              (do-layout! raw-data)
              (let [data-nodes (js->clj (aget raw-data "nodes"))
                    nodes (mapv (fn [data-node]
