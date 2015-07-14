@@ -79,7 +79,9 @@
   (merge-with - v1 v2))
 
 (defn scalar-multiply [v c]
-  (-> v (update :x * c) (update :y * c)))
+  (if (= c 1)
+    v
+    (math-vec (* c (:x v)) (* c (:y v)))))
 
 (defn neg-vec [v]
   (scalar-multiply v -1))
@@ -88,6 +90,11 @@
   (scalar-multiply v (/ l (vec-length v))))
 
 (def vec-distance (comp vec-length subtract-vec))
+
+(defn vec-clamp-to-bounds [v bounds]
+  (let [ratios (merge-with (comp js/Math.abs /) bounds v)
+        max-ratio (min 1 (:x ratios) (:y ratios))]
+    (scalar-multiply v max-ratio)))
 
 ;; D3 magic
 
@@ -100,6 +107,7 @@
     (/ (vec-distance (:camera-pos state) pos) corner-distance)))
 
 (defn elliptic-distance-from-camera [state pos]
+  "An alternate method of computing distance, currently unused."
   (let [{:keys [view-size camera-pos]} state
         rx (/ (:x view-size) 2)
         ry (/ (:y view-size) 2)
@@ -122,12 +130,12 @@
         displacement (subtract-vec pos camera-pos)
         r (scaled-distance-from-camera state pos)
         projected-r (project-displacement r)]
-    (add-vec view-center (scalar-multiply displacement
-                                        (/ projected-r r)))))
+      (add-vec view-center
+            (vec-clamp-to-bounds (scalar-multiply displacement (/ projected-r r)) view-center))))
 
 (defn project-radius [t]
-    (+ min-radius (* (- max-radius min-radius)
-                     (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25))))))))
+  (+ min-radius (* (- max-radius min-radius)
+                   (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25))))))))
 
 (defn view-radius [state pos]
   (let [r (scaled-distance-from-camera state pos)]
@@ -326,12 +334,12 @@
           (.empty rx-observable)
           (let [{:keys [vx vy]} a]
             (.generateWithRelativeTime rx-observable
-              (math-vec (* update-interval-ms (or vx 0))
-                        (* update-interval-ms (or vy 0)))
-              (fn [v] (> (vec-length-sq v) min-slide-speed-sq))
-              dampen
-              identity
-              (constantly update-interval-ms))))))))
+                                       (math-vec (* update-interval-ms (or vx 0))
+                                                 (* update-interval-ms (or vy 0)))
+                                       (fn [v] (> (vec-length-sq v) min-slide-speed-sq))
+                                       dampen
+                                       identity
+                                       (constantly update-interval-ms))))))))
 
 (defn move-camera-on-swipe! [manager current-state]
   (.subscribe
