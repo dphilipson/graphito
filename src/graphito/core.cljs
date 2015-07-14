@@ -93,8 +93,8 @@
          (<= t 0.5) t
          (<= 0.5 t 1) (+ 0.5 (/ (- t 0.5) 2))
          (<= 1 t 1.5) (+ 0.75 (/ (- t 1) 4))
-         (<= 1.5 t 2) (+ 0.875 (/ (- t 1.5) 8))
-         (<= 2 t) 1))))
+         (<= 1.5 t 2.5) (+ 0.875 (/ (- t 1.5) 8))
+         (<= 2.5 t) 1))))
 
 (defn view-position
   "Given the actual position of a node (in world coordinates), return the
@@ -111,11 +111,7 @@
 (defn project-radius [d view-length]
   (let [t (/ d view-length)]
     (+ min-radius (* (- max-radius min-radius)
-                     (cond
-                       (<= t 0.5) 1
-                       (<= 0.5 t 1.5) (- 1 (/ (- t 0.5) 2))
-                       (<= 1.5 t 2) (- 0.5 (- t 1.5))
-                       (<= 2 t) 0)))))
+                     (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25)))))))))
 
 (defn view-radius [state pos]
   (let [{:keys [view-size camera-pos]} state
