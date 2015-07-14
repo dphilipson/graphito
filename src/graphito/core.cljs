@@ -28,10 +28,8 @@
 (def swipe-damping-factor 1)
 (def min-slide-speed-sq 16)
 
-(def safe-zone-size 0.2)
 (def max-radius 32)
 (def min-radius 2)
-(def min-size-distance 2000)
 (def edge-buffer (+ min-radius 3))
 
 
@@ -79,14 +77,17 @@
 
 ;; D3 magic
 
-(defn project-displacement [d safe-distance max-distance]
+(defn project-displacement [d view-length]
   (let [project-positive-displacement
         (fn [d]
-          (if (< d safe-distance)
-            d
-            (+ safe-distance
-               (* (/ (- max-distance safe-distance) pi2)
-                  (atan (- d safe-distance))))))]
+          (let [t (/ d view-length)]
+            (* view-length
+               (cond
+                 (<= t 0.5) t
+                 (<= 0.5 t 1) (+ 0.5 (/ (- t 0.5) 2))
+                 (<= 1 t 1.5) (+ 0.75 (/ (- t 1) 4))
+                 (<= 1.5 t 2) (+ 0.875 (/ (- t 1.5) 8))
+                 (<= 2 t) 1))))]
     (if (pos? d)
       (project-positive-displacement d)
       (- (project-positive-displacement (- d))))))
@@ -98,22 +99,29 @@
   (let [{:keys [view-width view-height camera-x camera-y]} state
         view-center-x (/ view-width 2)
         view-center-y (/ view-height 2)
-        safe-distance-x (* safe-zone-size view-center-x)
-        safe-distance-y (* safe-zone-size view-center-y)
-        max-distance-x (- view-center-x edge-buffer)
-        max-distance-y (- view-center-y edge-buffer)
-        true-x-displacement (- x camera-x)
-        true-y-displacement (- y camera-y)
-        projected-x-displacement (project-displacement true-x-displacement
-                                                       safe-distance-x
-                                                       max-distance-x)
-        projected-y-displacement (project-displacement true-y-displacement
-                                                       safe-distance-y
-                                                       max-distance-y)]
-    {:x (+ view-center-x projected-x-displacement)
-     :y (+ view-center-y projected-y-displacement)}))
+        view-radius (dist view-center-x view-center-y)
+        x-displacement (- x camera-x)
+        y-displacement (- y camera-y)
+        r (dist x-displacement y-displacement)
+        projected-r (project-displacement r view-radius)
+        projected-x (* x-displacement (/ projected-r r))
+        projected-y (* y-displacement (/ projected-r r))]
+    {:x (+ view-center-x projected-x)
+     :y (+ view-center-y projected-y)}))
 
-(defn view-radius [state x y] 32)
+(defn view-radius [state x y]
+  (let [{:keys [view-width view-height camera-x camera-y]} state
+        view-center-x (/ view-width 2)
+        view-center-y (/ view-height 2)
+        view-radius (dist view-center-x view-center-y)
+        r (dist (- x camera-x) (- y camera-y))
+        t (/ r view-radius)]
+    (+ min-radius (* (- max-radius min-radius)
+                     (cond
+                       (<= t 0.5) 1
+                       (<= 0.5 t 1.5) (- 1 (/ (- t 0.5) 2))
+                       (<= 1.5 t 2) (- 0.5 (- t 1.5))
+                       (<= 2 t) 0)))))
 
 (defn sync-graph! [state]
   (let [{:keys [svg nodes]} state
@@ -126,13 +134,13 @@
         (.data (apply array nodes))
         (.attr "cx" view-x)
         (.attr "cy" view-y)
-        (.attr "r" view-radius)
+        (.attr "r" _view-radius)
         .enter
         (.append "circle")
         (.attr "class" "node")
         (.attr "cx" (comp view-x))
         (.attr "cy" (comp view-y))
-        (.attr "r" view-radius))))
+        (.attr "r" _view-radius))))
 
 ;; State management
 
