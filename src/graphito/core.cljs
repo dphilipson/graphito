@@ -121,7 +121,7 @@
     (<= 0.5 t 1) (+ 0.5 (/ (- t 0.5) 2))
     (<= 1 t 1.5) (+ 0.75 (/ (- t 1) 4))
     (<= 1.5 t 2.5) (+ 0.875 (/ (- t 1.5) 8))
-    (<= 2.5 t) 1))
+    :else 1))
 
 (defn view-position [state pos]
   (let [{:keys [view-size camera-pos]} state
@@ -131,11 +131,18 @@
         r (scaled-distance-from-camera state pos)
         projected-r (project-displacement r)]
     (add-vec view-center
-             (vec-clamp-to-bounds (scalar-multiply displacement (/ projected-r r)) view-center))))
+             (scalar-multiply displacement (/ projected-r r)))))
 
 (defn project-radius [t]
   (+ min-radius (* (- max-radius min-radius)
                    (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25))))))))
+
+(defn project-opacity [t]
+  (cond
+    (<= t 1) 1
+    (<= 1 t 2) (- 1 (/ (- t 1) 4))
+    (<= 2 t 3) (- 0.75 (* 0.75 (- t 2)))
+    :else 0))
 
 (defn sync-graph! [state]
   (let [{:keys [svg nodes links camera-pos view-size]} state
@@ -164,13 +171,15 @@
         (.attr "cx" (fn [d i] (:x (positions i))))
         (.attr "cy" (fn [d i] (:y (positions i))))
         (.attr "r" (fn [d i] (project-radius (distances-from-camera i))))
+        (.style "opacity" (fn [d i] (project-opacity (distances-from-camera i))))
         .enter
         (.append "circle")
         (.attr "class" "node")
         (.style "fill" "#777A7A")
         (.attr "cx" (fn [d i] (:x (positions i))))
         (.attr "cy" (fn [d i] (:y (positions i))))
-        (.attr "r" (fn [d i] (project-radius (distances-from-camera i)))))))
+        (.attr "r" (fn [d i] (project-radius (distances-from-camera i))))
+        (.style "opacity" (fn [d i] (project-opacity (distances-from-camera i)))))))
 
 ;; State management
 
