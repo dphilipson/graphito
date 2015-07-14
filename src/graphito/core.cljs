@@ -162,35 +162,27 @@
         distances-from-camera
         (mapv (fn [node]
                 (scaled-distance-from-camera state (:pos node))) nodes)]
-    (-> svg (.selectAll ".link")
-        (.data (apply array links))
-        (.attr "x1" #(-> % :source positions :x))
-        (.attr "y1" #(-> % :source positions :y))
-        (.attr "x2" #(-> % :target positions :x))
-        (.attr "y2" #(-> % :target positions :y))
-        .enter
-        (.append "line")
-        (.attr "class" "link")
-        (.style "stroke" "#C9CBCB")
-        (.style "stroke-width" 3)
-        (.attr "x1" #(-> % :source positions :x))
-        (.attr "y1" #(-> % :source positions :y))
-        (.attr "x2" #(-> % :target positions :x))
-        (.attr "y2" #(-> % :target positions :y)))
-    (-> svg (.selectAll ".node")
-        (.data (apply array nodes))
-        (.attr "cx" (fn [d i] (:x (positions i))))
-        (.attr "cy" (fn [d i] (:y (positions i))))
-        (.attr "r" (fn [d i] (project-radius (distances-from-camera i))))
-        (.style "opacity" (fn [d i] (project-opacity (distances-from-camera i))))
-        .enter
+    (let [link-selection (-> svg (.selectAll ".link") (.data (apply array links)))]
+      (-> link-selection .enter
+          (.append "line")
+          (.attr "class" "link")
+          (.style "stroke" "#C9CBCB")
+          (.style "stroke-width" 3))
+      (-> link-selection
+          (.attr "x1" #(-> % :source positions :x))
+          (.attr "y1" #(-> % :source positions :y))
+          (.attr "x2" #(-> % :target positions :x))
+          (.attr "y2" #(-> % :target positions :y))))
+    (let [node-selection #(-> svg (.selectAll ".node") (.data (apply array nodes)))]
+      (-> (node-selection) .enter
         (.append "circle")
         (.attr "class" "node")
-        (.style "fill" "#777A7A")
+        (.style "fill" "#777A7A"))
+      (-> (node-selection)
         (.attr "cx" (fn [d i] (:x (positions i))))
         (.attr "cy" (fn [d i] (:y (positions i))))
         (.attr "r" (fn [d i] (project-radius (distances-from-camera i))))
-        (.style "opacity" (fn [d i] (project-opacity (distances-from-camera i)))))))
+        (.style "opacity" (fn [d i] (project-opacity (distances-from-camera i))))))))
 
 ;; State management
 
