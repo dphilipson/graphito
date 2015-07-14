@@ -137,42 +137,39 @@
   (+ min-radius (* (- max-radius min-radius)
                    (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25))))))))
 
-(defn view-radius [state pos]
-  (let [r (scaled-distance-from-camera state pos)]
-    (project-radius r)))
-
 (defn sync-graph! [state]
-  (let [{:keys [svg nodes links]} state
-        _view-position (fn [d] (view-position state (:pos d)))
-        view-x (comp :x _view-position)
-        view-y (comp :y _view-position)
-        _view-radius (fn [d] (view-radius state (:pos d)))]
+  (let [{:keys [svg nodes links camera-pos view-size]} state
+        positions (mapv (fn [node]
+                          (view-position state (:pos node))) nodes)
+        distances-from-camera
+        (mapv (fn [node]
+                (scaled-distance-from-camera state (:pos node))) nodes)]
     (-> svg (.selectAll ".link")
         (.data (apply array links))
-        (.attr "x1" (fn [link] (view-x (nodes (:source link)))))
-        (.attr "y1" (fn [link] (view-y (nodes (:source link)))))
-        (.attr "x2" (fn [link] (view-x (nodes (:target link)))))
-        (.attr "y2" (fn [link] (view-y (nodes (:target link)))))
+        (.attr "x1" #(-> % :source positions :x))
+        (.attr "y1" #(-> % :source positions :y))
+        (.attr "x2" #(-> % :target positions :x))
+        (.attr "y2" #(-> % :target positions :y))
         .enter
         (.append "line")
         (.attr "class" "link")
-        (.attr "x1" (fn [link] (view-x (nodes (:source link)))))
-        (.attr "y1" (fn [link] (view-y (nodes (:source link)))))
-        (.attr "x2" (fn [link] (view-x (nodes (:target link)))))
-        (.attr "y2" (fn [link] (view-y (nodes (:target link)))))
         (.style "stroke" "black")
-        (.style "stroke-width" 3))
+        (.style "stroke-width" 1)
+        (.attr "x1" #(-> % :source positions :x))
+        (.attr "y1" #(-> % :source positions :y))
+        (.attr "x2" #(-> % :target positions :x))
+        (.attr "y2" #(-> % :target positions :y)))
     (-> svg (.selectAll ".node")
         (.data (apply array nodes))
-        (.attr "cx" view-x)
-        (.attr "cy" view-y)
-        (.attr "r" _view-radius)
+        (.attr "cx" (fn [d i] (:x (positions i))))
+        (.attr "cy" (fn [d i] (:y (positions i))))
+        (.attr "r" (fn [d i] (project-radius (distances-from-camera i))))
         .enter
         (.append "circle")
         (.attr "class" "node")
-        (.attr "cx" view-x)
-        (.attr "cy" view-y)
-        (.attr "r" _view-radius))))
+        (.attr "cx" (fn [d i] (:x (positions i))))
+        (.attr "cy" (fn [d i] (:y (positions i))))
+        (.attr "r" (fn [d i] (project-radius (distances-from-camera i)))))))
 
 ;; State management
 
