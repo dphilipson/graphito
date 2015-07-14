@@ -57,65 +57,59 @@
     svg))
 
 
-;; Math
+;; Vector math
+
+(defn math-vec [x y] {:x x :y y})
 
 (def sqrt (.-sqrt js/Math))
-(def tan (.-tan js/Math))
-(def atan (.-atan js/Math))
-(def pi (.-PI js/Math))
-(def pi2 (/ pi 2))
 
-(defn dist-sq [x y]
-  (+ (* x x) (* y y)))
+(defn dist-sq [v]
+  (let [{:keys [x y]} v]
+    (+ (* x x) (* y y))))
 
 (def dist (comp sqrt dist-sq))
 
-(defn vector-with-length [l x y]
-  (let [factor (/ l (dist x y))]
-    [(* factor x) (* factor y)]))
+(defn add-vec [v1 v2]
+  (merge-with + v1 v2))
 
+(defn subtract-vec [v1 v2]
+  (merge-with - v1 v2))
+
+(defn scalar-multiply [v c]
+  (-> v (update :x * c) (update :y * c)))
+
+(defn neg-vec [v]
+  (scalar-multiply v -1))
+
+(defn vec-with-length [v l]
+  (scalar-multiply v (/ l (dist v))))
 
 ;; D3 magic
 
 (defn project-displacement [d view-length]
-  (let [project-positive-displacement
-        (fn [d]
-          (let [t (/ d view-length)]
-            (* view-length
-               (cond
-                 (<= t 0.5) t
-                 (<= 0.5 t 1) (+ 0.5 (/ (- t 0.5) 2))
-                 (<= 1 t 1.5) (+ 0.75 (/ (- t 1) 4))
-                 (<= 1.5 t 2) (+ 0.875 (/ (- t 1.5) 8))
-                 (<= 2 t) 1))))]
-    (if (pos? d)
-      (project-positive-displacement d)
-      (- (project-positive-displacement (- d))))))
+  (let [t (/ d view-length)]
+    (* view-length
+       (cond
+         (<= t 0.5) t
+         (<= 0.5 t 1) (+ 0.5 (/ (- t 0.5) 2))
+         (<= 1 t 1.5) (+ 0.75 (/ (- t 1) 4))
+         (<= 1.5 t 2) (+ 0.875 (/ (- t 1.5) 8))
+         (<= 2 t) 1))))
 
 (defn view-position
   "Given the actual position of a node (in world coordinates), return the
   position of the node in screen coordinates according to the state."
-  [state x y]
-  (let [{:keys [view-width view-height camera-x camera-y]} state
-        view-center-x (/ view-width 2)
-        view-center-y (/ view-height 2)
-        view-radius (dist view-center-x view-center-y)
-        x-displacement (- x camera-x)
-        y-displacement (- y camera-y)
-        r (dist x-displacement y-displacement)
-        projected-r (project-displacement r view-radius)
-        projected-x (* x-displacement (/ projected-r r))
-        projected-y (* y-displacement (/ projected-r r))]
-    {:x (+ view-center-x projected-x)
-     :y (+ view-center-y projected-y)}))
+  [state pos]
+  (let [{:keys [view-size camera-pos]} state
+        view-center (scalar-multiply view-size 0.5)
+        view-radius (dist view-center)
+        displacement (subtract-vec pos camera-pos)
+        r (dist displacement)
+        projected-r (project-displacement r view-radius)]
+    (add-vec view-center (vec-with-length displacement projected-r))))
 
-(defn view-radius [state x y]
-  (let [{:keys [view-width view-height camera-x camera-y]} state
-        view-center-x (/ view-width 2)
-        view-center-y (/ view-height 2)
-        view-radius (dist view-center-x view-center-y)
-        r (dist (- x camera-x) (- y camera-y))
-        t (/ r view-radius)]
+(defn project-radius [d view-length]
+  (let [t (/ d view-length)]
     (+ min-radius (* (- max-radius min-radius)
                      (cond
                        (<= t 0.5) 1
@@ -123,12 +117,20 @@
                        (<= 1.5 t 2) (- 0.5 (- t 1.5))
                        (<= 2 t) 0)))))
 
+(defn view-radius [state pos]
+  (let [{:keys [view-size camera-pos]} state
+        view-center (scalar-multiply view-size 0.5)
+        view-radius (dist view-center)
+        displacement (subtract-vec pos camera-pos)
+        r (dist displacement)]
+    (project-radius r view-radius)))
+
 (defn sync-graph! [state]
   (let [{:keys [svg nodes]} state
-        _view-position (fn [d] (view-position state (:x d) (:y d)))
+        _view-position (fn [d] (view-position state (:pos d)))
         view-x (comp :x _view-position)
         view-y (comp :y _view-position)
-        _view-radius (fn [d] (view-radius state (:x d) (:y d)))]
+        _view-radius (fn [d] (view-radius state (:pos d)))]
     (-> svg
         (.selectAll ".node")
         (.data (apply array nodes))
@@ -146,10 +148,8 @@
 
 (defn initial-state [svg width height]
   {:svg svg
-   :view-width width
-   :view-height height
-   :camera-x 0
-   :camera-y 0
+   :view-size (math-vec width height)
+   :camera-pos (math-vec 0 0)
    :nodes []})
 
 (defn swap-state! [current-state f & args]
@@ -160,10 +160,8 @@
   (apply swap! current-state update k f args)
   (sync-graph! @current-state))
 
-(defn move-camera! [current-state dx dy]
-  (swap-state! current-state #(-> %
-                                  (update :camera-x + dx)
-                                  (update :camera-y + dy))))
+(defn move-camera! [current-state d]
+  (update-state! current-state :camera-pos add-vec d))
 
 ;; Layout
 
@@ -207,8 +205,7 @@
 
 (defn node [title x y]
   {:title title
-   :x x
-   :y y})
+   :pos (math-vec x y)})
 
 (defn load-nodes [json-file callback]
   (.json d3 json-file
@@ -254,7 +251,7 @@
         (fn [arrows]
           (let [dx (+ (if (arrows :left) -10 0) (if (arrows :right) 10 0))
                 dy (+ (if (arrows :up) -10 0) (if (arrows :down) 10 0))]
-            (move-camera! current-state dx dy))))))
+            (move-camera! current-state (math-vec dx dy)))))))
 
 ;; Gestures
 
@@ -276,7 +273,6 @@
 (defn pan-observable [manager svg]
   (gesture-observable manager svg "panstart panmove"))
 
-
 (defn pan-deltas-observable [manager svg]
   (-> (pan-observable manager svg)
       (.bufferWithCount 2 1)
@@ -284,14 +280,14 @@
                            e1-center (.-center e1)
                            e2-center (.-center e2)]
                        (if (= (.-type e2) "panstart")
-                         {:dx 0 :dy 0}
-                         {:dx (- (.-x e1-center) (.-x e2-center))
-                          :dy (- (.-y e1-center) (.-y e2-center))}))))))
+                         (math-vec 0 0)
+                         (math-vec (- (.-x e1-center) (.-x e2-center))
+                                   (- (.-y e1-center) (.-y e2-center)))))))))
 
 (defn move-camera-on-pan! [manager current-state]
   (.subscribe
     (pan-deltas-observable manager (:svg @current-state))
-    (fn [d] (let [{:keys [dx dy]} d] (move-camera! current-state dx dy)))))
+    (partial move-camera! current-state)))
 
 ;; Gestures - swipe
 
@@ -307,9 +303,9 @@
         (.merge (-> rx-observable (.fromEvent elem "touchstart")))
         (.map (constantly :scroll-end)))))
 
-(defn dampen [x y]
-  (let [length (dist x y)]
-    (vector-with-length (- length swipe-damping-factor) x y)))
+(defn dampen [v]
+  (let [length (dist v)]
+    (vec-with-length v (- length swipe-damping-factor))))
 
 (defn swipe-displacements-observable [manager svg]
   (let [swipes (swipe-observable manager svg)
@@ -322,18 +318,17 @@
           (.empty rx-observable)
           (let [{:keys [vx vy]} a]
             (.generateWithRelativeTime rx-observable
-              {:dx (* update-interval-ms (or vx 0)), :dy (* update-interval-ms (or vy 0))}
-              (fn [d] 
-                (> (dist-sq (:dx d) (:dy d)) min-slide-speed-sq))
-              (fn [d] (let [[x y] (apply dampen (map d [:dx :dy]))] {:dx x :dy y}))
+              (math-vec (* update-interval-ms (or vx 0))
+                        (* update-interval-ms (or vy 0)))
+              (fn [v] (> (dist-sq v) min-slide-speed-sq))
+              dampen
               identity
               (constantly update-interval-ms))))))))
 
 (defn move-camera-on-swipe! [manager current-state]
   (.subscribe
     (swipe-displacements-observable manager (:svg @current-state))
-    (fn [d] 
-      (let [{:keys [dx dy]} d] (move-camera! current-state dx dy)))))
+    (partial move-camera! current-state)))
 
 ;; Gestures - pinch
 
