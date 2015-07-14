@@ -28,6 +28,10 @@
 (def swipe-damping-factor 1)
 (def min-slide-speed-sq 16)
 
+; A factor of 1 is an ellipse fitting the bounds of the window. Higher factors
+; expand the visualization linearly.
+(def displacement-factor 1)
+
 (def max-radius 32)
 (def min-radius 2)
 (def edge-buffer (+ min-radius 3))
@@ -56,18 +60,17 @@
     (add-background! svg width height)
     svg))
 
-
 ;; Vector math
 
 (defn math-vec [x y] {:x x :y y})
 
 (def sqrt (.-sqrt js/Math))
 
-(defn dist-sq [v]
+(defn vec-length-sq [v]
   (let [{:keys [x y]} v]
     (+ (* x x) (* y y))))
 
-(def dist (comp sqrt dist-sq))
+(def vec-length (comp sqrt vec-length-sq))
 
 (defn add-vec [v1 v2]
   (merge-with + v1 v2))
@@ -82,44 +85,46 @@
   (scalar-multiply v -1))
 
 (defn vec-with-length [v l]
-  (scalar-multiply v (/ l (dist v))))
+  (scalar-multiply v (/ l (vec-length v))))
+
+(def vec-distance (comp vec-length subtract-vec))
 
 ;; D3 magic
 
-(defn project-displacement [d view-length]
-  (let [t (/ d view-length)]
-    (* view-length
-       (cond
-         (<= t 0.5) t
-         (<= 0.5 t 1) (+ 0.5 (/ (- t 0.5) 2))
-         (<= 1 t 1.5) (+ 0.75 (/ (- t 1) 4))
-         (<= 1.5 t 2.5) (+ 0.875 (/ (- t 1.5) 8))
-         (<= 2.5 t) 1))))
+(defn elliptic-distance-from-camera [state pos]
+  (let [{:keys [view-size camera-pos]} state
+        rx (/ (:x view-size) 2)
+        ry (/ (:y view-size) 2)
+        sq (fn [x] (* x x))
+        {:keys [x y]} (subtract-vec pos camera-pos)]
+    (sqrt (+ (/ (sq x) (sq rx)) (/ (sq y) (sq ry))))))
+
+(defn project-displacement [t]
+  (cond
+    (<= t 0.5) t
+    (<= 0.5 t 1) (+ 0.5 (/ (- t 0.5) 2))
+    (<= 1 t 1.5) (+ 0.75 (/ (- t 1) 4))
+    (<= 1.5 t 2.5) (+ 0.875 (/ (- t 1.5) 8))
+    (<= 2.5 t) 1))
 
 (defn view-position
-  "Given the actual position of a node (in world coordinates), return the
-  position of the node in screen coordinates according to the state."
   [state pos]
   (let [{:keys [view-size camera-pos]} state
         view-center (scalar-multiply view-size 0.5)
-        view-radius (dist view-center)
         displacement (subtract-vec pos camera-pos)
-        r (dist displacement)
-        projected-r (project-displacement r view-radius)]
-    (add-vec view-center (vec-with-length displacement projected-r))))
+        r (elliptic-distance-from-camera state pos)
+        projected-r (project-displacement r)]
+    (add-vec view-center (scalar-multiply displacement
+                                          (* displacement-factor
+                                             (/ projected-r r))))))
 
-(defn project-radius [d view-length]
-  (let [t (/ d view-length)]
+(defn project-radius [t]
     (+ min-radius (* (- max-radius min-radius)
-                     (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25)))))))))
+                     (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25))))))))
 
 (defn view-radius [state pos]
-  (let [{:keys [view-size camera-pos]} state
-        view-center (scalar-multiply view-size 0.5)
-        view-radius (dist view-center)
-        displacement (subtract-vec pos camera-pos)
-        r (dist displacement)]
-    (project-radius r view-radius)))
+  (let [r (elliptic-distance-from-camera state pos)]
+    (project-radius r)))
 
 (defn sync-graph! [state]
   (let [{:keys [svg nodes]} state
@@ -300,7 +305,7 @@
         (.map (constantly :scroll-end)))))
 
 (defn dampen [v]
-  (let [length (dist v)]
+  (let [length (vec-length v)]
     (vec-with-length v (- length swipe-damping-factor))))
 
 (defn swipe-displacements-observable [manager svg]
@@ -316,7 +321,7 @@
             (.generateWithRelativeTime rx-observable
               (math-vec (* update-interval-ms (or vx 0))
                         (* update-interval-ms (or vy 0)))
-              (fn [v] (> (dist-sq v) min-slide-speed-sq))
+              (fn [v] (> (vec-length-sq v) min-slide-speed-sq))
               dampen
               identity
               (constantly update-interval-ms))))))))
