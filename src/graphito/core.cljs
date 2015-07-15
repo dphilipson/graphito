@@ -153,14 +153,18 @@
 (defn projectors-for-state [state]
   (if (= (:projection state) :fisheye) fisheye-projectors zoom-out-projectors))
 
-(defn sync-graph! [state & {:keys [animate]}]
+(defn sync-graph! [state & {:keys [animation-signaller]}]
   (let [{:keys [svg nodes links camera-pos view-size]} state
         {:keys [project-displacement
                 project-radius
                 project-opacity]} (projectors-for-state state)
-        maybe-transition (if animate
-                           #(-> % .transition (.duration 500))
-                           identity)
+        transition (fn [selection]
+                     (animation-signaller true)
+                     (-> selection
+                         .transition
+                         (.duration 500)
+                         (.each "end" #(animation-signaller false))))
+        maybe-transition (if animation-signaller transition identity)
         positions (mapv (fn [node]
                           (view-position state
                                          (:pos node)
@@ -213,9 +217,9 @@
 (defn move-camera! [current-state d]
   (update-state! current-state :camera-pos add-vec d))
 
-(defn set-projection! [current-state projection]
+(defn set-projection! [current-state projection animation-signaller]
   (swap! current-state assoc :projection projection)
-  (sync-graph! @current-state :animate true))
+  (sync-graph! @current-state :animation-signaller animation-signaller))
 
 ;; Layout
 
@@ -287,6 +291,21 @@
 
 (def tick-observable (js/Rx.Observable.interval update-interval-ms))
 
+(defn animation-observable-and-signaller []
+  (let [observers (atom [])
+        observable (.create rx-observable #(swap! observers conj %))
+        bool->event #(if % :animation-start :animation-end)
+        animation-signaller (fn [b]
+                              (doseq [o @observers]
+                                (.onNext o (bool->event b))))]
+    [observable animation-signaller]))
+
+(defn suppress-while-animating [observable animation-observable]
+  (.flatMapLatest animation-observable
+                  (fn [e] (if (= e :animation-start)
+                            (.empty rx-observable)
+                            observable))))
+
 ;; Arrow keys
 
 (def key-down-observable (.fromEvent rx-observable js/document "keydown"))
@@ -307,11 +326,12 @@
 (def arrow-keys-observable
   (.map keys-observable #(->> % (map arrow-codes) (filter (comp not nil?)) (into #{}))))
 
-(defn move-camera-on-arrow-keys! [current-state]
+(defn move-camera-on-arrow-keys! [current-state animation-observable]
   (-> arrow-keys-observable
       (.flatMapLatest (fn [arrows] (if (empty? arrows)
                                      (.empty rx-observable)
                                      (-> tick-observable (.map (constantly arrows))))))
+      (suppress-while-animating animation-observable)
       (.subscribe
         (fn [arrows]
           (let [dx (+ (if (arrows :left) -10 0) (if (arrows :right) 10 0))
@@ -349,10 +369,10 @@
                          (math-vec (- (.-x e1-center) (.-x e2-center))
                                    (- (.-y e1-center) (.-y e2-center)))))))))
 
-(defn move-camera-on-pan! [manager current-state]
-  (.subscribe
-    (pan-deltas-observable manager (:svg @current-state))
-    (partial move-camera! current-state)))
+(defn move-camera-on-pan! [manager current-state animation-observable]
+  (-> (pan-deltas-observable manager (:svg @current-state))
+      (suppress-while-animating animation-observable)
+      (.subscribe (partial move-camera! current-state))))
 
 ;; Gestures - swipe
 
@@ -390,10 +410,10 @@
                                        identity
                                        (constantly update-interval-ms))))))))
 
-(defn move-camera-on-swipe! [manager current-state]
-  (.subscribe
-    (swipe-displacements-observable manager (:svg @current-state))
-    (partial move-camera! current-state)))
+(defn move-camera-on-swipe! [manager current-state animation-observable]
+  (-> (swipe-displacements-observable manager (:svg @current-state))
+      (suppress-while-animating animation-observable)
+      (.subscribe (partial move-camera! current-state))))
 
 ;; Gestures - pinch
 
@@ -403,18 +423,19 @@
   (.map (gesture-observable manager svg "pinchmove")
         #(.-scale %)))
 
-(defn zoom-out-on-pinch! [manager current-state]
+(defn zoom-out-on-pinch! [manager current-state animation-observable]
   (-> (pinch-observable manager (:svg @current-state))
+      (suppress-while-animating animation-observable)
       (.filter #(< % 0.5))
       (.subscribe #(js/alert "TODO: zoom out"))))
 
 ;; Temporary animation test function
 
-(defn zoom-in-out-on-interval! [current-state]
+(defn zoom-in-out-on-interval! [current-state animation-signaller]
   ((fn f [projection]
      (.setTimeout js/window
                   (fn []
-                    (set-projection! current-state projection)
+                    (set-projection! current-state projection animation-signaller)
                     (f (if (= projection :fisheye) :zoom-out :fisheye)))
                   2000)) :zoom-out))
 
@@ -426,16 +447,16 @@
         height (.-clientHeight element)
         svg (setup-svg! selector width height)
         current-state (atom (initial-state svg width height))
-        gesture-manager (hammer-manager svg)]
+        gesture-manager (hammer-manager svg)
+        [animation-observable
+         animation-signaller] (animation-observable-and-signaller)]
     (sync-graph! @current-state)
     (load-graph "miserables.json"
                 (fn [graph]
                   (let [{:keys [nodes links]} graph]
                     (swap-state! current-state assoc :nodes nodes :links links))))
-                (move-camera-on-arrow-keys! current-state)
-                (move-camera-on-pan! gesture-manager current-state)
-                (move-camera-on-swipe! gesture-manager current-state)
-                (zoom-out-on-pinch! gesture-manager current-state)
-                (zoom-in-out-on-interval! current-state)))
-
-
+                (move-camera-on-arrow-keys! current-state animation-observable)
+                (move-camera-on-pan! gesture-manager current-state animation-observable)
+                (move-camera-on-swipe! gesture-manager current-state animation-observable)
+                (zoom-out-on-pinch! gesture-manager current-state animation-observable)
+                (zoom-in-out-on-interval! current-state animation-signaller)))
