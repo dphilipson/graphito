@@ -133,8 +133,10 @@
         displacement (subtract-vec pos camera-pos)
         r (scaled-distance-from-camera state pos)
         projected-r (projector r)]
-    (add-vec view-center
-             (scalar-multiply displacement (/ projected-r r)))))
+    (if (= r 0)
+      view-center
+      (add-vec view-center
+               (scalar-multiply displacement (/ projected-r r))))))
 
 (defn project-radius [t]
   (* max-radius (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25)))))))
@@ -158,6 +160,11 @@
   (if (= (:projection state) :fisheye) fisheye-projectors zoom-out-projectors))
 
 ;; D3 magic
+
+(defn add-tap-listener [elem callback]
+  (let [manager (js/Hammer.Manager. elem)]
+    (.add manager (js/Hammer.Tap.))
+    (.on manager "tap" callback)))
 
 (defn sync-graph! [state & {:keys [animate?]}]
   (let [{:keys [svg
@@ -190,7 +197,10 @@
           (.append "line")
           (.attr "class" "link")
           (.style "stroke" "#C9CBCB")
-          (.style "stroke-width" 3))
+          (.style "stroke-width" 3)
+          (.each
+            (fn [link]
+              (this-as elem (add-tap-listener elem #(link-tap-signaller link))))))
       (-> link-selection
           maybe-transition
           (.attr "x1" #(-> % :source positions :x))
@@ -201,7 +211,10 @@
       (-> node-selection .enter
           (.append "circle")
           (.attr "class" "node")
-          (.style "fill" "#777A7A"))
+          (.style "fill" "#777A7A")
+          (.each
+            (fn [node]
+              (this-as elem (add-tap-listener elem #(node-tap-signaller node))))))
       (-> node-selection
           maybe-transition
           (.attr "cx" (fn [d i] (:x (positions i))))
@@ -396,7 +409,7 @@
         (.recognizeWith (.get manager "pan")))
     (-> manager (.add (js/Hammer.Pinch.))
         (.recognizeWith (.get manager "pan")))
-    (-> manager (.add (js/Hammer.Tap.)))
+    (.add manager (js/Hammer.Tap.))
     manager))
 
 (defn gesture-observable [manager svg gesture]
@@ -522,7 +535,9 @@
                           animation-observable]
   (-> node-tap-observable
       (suppress-while-animating animation-observable)
-      (.subscribe #(js/alert "FOO"))))
+      (.subscribe (fn [node]
+                    (if (= (:projection @current-state) :fisheye)
+                      (zoom-in-to-pos! current-state (:pos node)))))))
 
 ;; Exported function to do magic
 
