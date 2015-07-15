@@ -189,15 +189,15 @@
           (.attr "y2" #(-> % :target positions :y))))
     (let [node-selection (-> svg (.selectAll ".node") (.data (apply array nodes)))]
       (-> node-selection .enter
-        (.append "circle")
-        (.attr "class" "node")
-        (.style "fill" "#777A7A"))
+          (.append "circle")
+          (.attr "class" "node")
+          (.style "fill" "#777A7A"))
       (-> node-selection
-        maybe-transition
-        (.attr "cx" (fn [d i] (:x (positions i))))
-        (.attr "cy" (fn [d i] (:y (positions i))))
-        (.attr "r" (fn [d i] (project-radius (distances-from-camera i))))
-        (.style "opacity" (fn [d i] (project-opacity (distances-from-camera i))))))))
+          maybe-transition
+          (.attr "cx" (fn [d i] (:x (positions i))))
+          (.attr "cy" (fn [d i] (:y (positions i))))
+          (.attr "r" (fn [d i] (project-radius (distances-from-camera i))))
+          (.style "opacity" (fn [d i] (project-opacity (distances-from-camera i))))))))
 
 ;; State management
 
@@ -224,6 +224,12 @@
 (defn set-projection! [current-state projection animation-signaller]
   (swap! current-state assoc :projection projection)
   (sync-graph! @current-state :animation-signaller animation-signaller))
+
+(defn toggle-projection! [current-state animation-signaller]
+  (let [projection (if (= (:projection @current-state) :fisheye)
+                     :zoom-out
+                     :fisheye)]
+    (set-projection! current-state projection animation-signaller)))
 
 ;; Layout
 
@@ -295,17 +301,21 @@
 
 (def tick-observable (js/Rx.Observable.interval update-interval-ms))
 
-(defn animation-observable-and-signaller []
+(defn animation-observable-and-signaller
+  "Returns an observable paired with a function which can be called to emit
+  events on the observable. Subscribers to the observable immediately
+  receive the most recently emitted value."
+  []
   (let [observers (atom [])
         observable (-> rx-observable
                        (.create #(swap! observers conj %))
+                       (.startWith :animation-end)
                        (.replay 1))
         bool->event #(if % :animation-start :animation-end)
         animation-signaller (fn [b]
                               (doseq [o @observers]
                                 (.onNext o (bool->event b))))]
     (.connect observable) 
-    (animation-signaller false)
     [observable animation-signaller]))
 
 (defn suppress-while-animating [observable animation-observable]
@@ -314,10 +324,11 @@
                             (.empty rx-observable)
                             observable))))
 
-;; Arrow keys
+;; Keyboard
 
 (def key-down-observable (.fromEvent rx-observable js/document "keydown"))
 (def key-up-observable (.fromEvent rx-observable js/document "keyup"))
+
 (def keys-observable
   "An observable of what keys are currently pressed"
   (-> key-down-observable (.merge key-up-observable)
@@ -345,6 +356,13 @@
           (let [dx (+ (if (arrows :left) -10 0) (if (arrows :right) 10 0))
                 dy (+ (if (arrows :up) -10 0) (if (arrows :down) 10 0))]
             (move-camera! current-state (math-vec dx dy)))))))
+
+(defn switch-zoom-on-spacebar!
+  [current-state animation-observable animation-signaller]
+  (-> key-up-observable
+      (.filter #(= 32 (.-keyCode %)))
+      (suppress-while-animating animation-observable)
+      (.subscribe #(toggle-projection! current-state animation-signaller))))
 
 ;; Gestures
 
@@ -431,21 +449,15 @@
   (.map (gesture-observable manager svg "pinchmove")
         #(.-scale %)))
 
-(defn zoom-out-on-pinch! [manager current-state animation-observable]
+(defn zoom-out-on-pinch! [manager
+                          current-state
+                          animation-observable
+                          animation-signaller]
   (-> (pinch-observable manager (:svg @current-state))
+      (.filter #(< % 0.8))
       (suppress-while-animating animation-observable)
-      (.filter #(< % 0.5))
-      (.subscribe #(js/alert "TODO: zoom out"))))
-
-;; Temporary animation test function
-
-(defn zoom-in-out-on-interval! [current-state animation-signaller]
-  ((fn f [projection]
-     (.setTimeout js/window
-                  (fn []
-                    (set-projection! current-state projection animation-signaller)
-                    (f (if (= projection :fisheye) :zoom-out :fisheye)))
-                  2000)) :zoom-out))
+      (.subscribe
+        #(set-projection! current-state :zoom-out animation-signaller))))
 
 ;; Exported function to do magic
 
@@ -463,8 +475,10 @@
                 (fn [graph]
                   (let [{:keys [nodes links]} graph]
                     (swap-state! current-state assoc :nodes nodes :links links))))
-                (move-camera-on-arrow-keys! current-state animation-observable)
-                (move-camera-on-pan! gesture-manager current-state animation-observable)
-                (move-camera-on-swipe! gesture-manager current-state animation-observable)
-                (zoom-out-on-pinch! gesture-manager current-state animation-observable)
-                (zoom-in-out-on-interval! current-state animation-signaller)))
+    (move-camera-on-arrow-keys! current-state animation-observable)
+    (move-camera-on-pan! gesture-manager current-state animation-observable)
+    (move-camera-on-swipe! gesture-manager current-state animation-observable)
+    (switch-zoom-on-spacebar!
+      current-state animation-observable animation-signaller)
+    (zoom-out-on-pinch!
+      gesture-manager current-state animation-observable animation-signaller)))
