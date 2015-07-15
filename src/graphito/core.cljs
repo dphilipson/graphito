@@ -1,5 +1,6 @@
 (ns graphito.core
-  (:require [clojure.browser.repl :as repl]))
+  (:require [clojure.browser.repl :as repl]
+            [graphito.vector :as v]))
 
 ;; (defonce conn
 ;;   (repl/connect "http://localhost:9000/repl"))
@@ -59,37 +60,6 @@
     (add-background! svg width height)
     svg))
 
-;; Vector math
-
-(defn math-vec [x y] {:x x :y y})
-
-(def sqrt (.-sqrt js/Math))
-
-(defn vec-length-sq [v]
-  (let [{:keys [x y]} v]
-    (+ (* x x) (* y y))))
-
-(def vec-length (comp sqrt vec-length-sq))
-
-(defn add-vec [v1 v2]
-  (merge-with + v1 v2))
-
-(defn subtract-vec [v1 v2]
-  (merge-with - v1 v2))
-
-(defn scalar-multiply [v c]
-  (if (= c 1)
-    v
-    (math-vec (* c (:x v)) (* c (:y v)))))
-
-(defn neg-vec [v]
-  (scalar-multiply v -1))
-
-(defn vec-with-length [v l]
-  (scalar-multiply v (/ l (vec-length v))))
-
-(def vec-distance (comp vec-length subtract-vec))
-
 ;; Geometry
 
 (defn scroll-scale-for-state [state]
@@ -97,26 +67,28 @@
 
 (defn zoom-out->world-pos [state pos]
   (let [{:keys [camera-pos view-size]} state
-        view-center (scalar-multiply view-size 0.5)
-        displacement (subtract-vec pos view-center)]
-    (add-vec camera-pos (scalar-multiply displacement (/ zoom-out-scale)))))
+        view-center (-> view-size v/copy (v/multiply 0.5))
+        displacement (-> view-center (v/subtract pos) v/neg)]
+    (-> displacement (v/multiply (/ zoom-out-scale)) (v/add camera-pos))))
 
 (defn scaled-distance-from-camera
   "Returns the distance of the given point from the camera, scaled so that
   points which would be at the corner of the screen are at distance 1"
   [state pos]
   (let [{:keys [camera-pos view-size]} state
-        corner-distance (/ (vec-length view-size) 2)]
-    (/ (vec-distance (:camera-pos state) pos) corner-distance)))
+        corner-distance (/ (v/length view-size) 2)]
+    (/ (v/distance camera-pos pos) corner-distance)))
 
 (defn elliptic-distance-from-camera [state pos]
   "An alternate method of computing distance, currently unused."
   (let [{:keys [view-size camera-pos]} state
-        rx (/ (:x view-size) 2)
-        ry (/ (:y view-size) 2)
+        rx (/ (v/x view-size) 2)
+        ry (/ (v/y view-size) 2)
         sq (fn [x] (* x x))
-        {:keys [x y]} (subtract-vec pos camera-pos)]
-    (sqrt (+ (/ (sq x) (sq rx)) (/ (sq y) (sq ry))))))
+        displacement (-> pos v/copy (v/subtract camera-pos))
+        x (v/x displacement)
+        y (v/y displacement)]
+    (js/Math.sqrt (+ (/ (sq x) (sq rx)) (/ (sq y) (sq ry))))))
 
 (defn project-displacement [t]
   (cond
@@ -128,15 +100,15 @@
 
 (defn view-position [state pos projector]
   (let [{:keys [view-size camera-pos]} state
-        view-center (scalar-multiply view-size 0.5)
-        corner-distance (vec-length view-center)
-        displacement (subtract-vec pos camera-pos)
+        view-center (-> view-size v/copy (v/multiply 0.5))
+        corner-distance (v/length view-center)
+        displacement (-> pos v/copy (v/subtract camera-pos))
         r (scaled-distance-from-camera state pos)
         projected-r (projector r)]
     (if (= r 0)
       view-center
-      (add-vec view-center
-               (scalar-multiply displacement (/ projected-r r))))))
+      (v/add view-center
+             (v/multiply displacement (/ projected-r r))))))
 
 (defn project-radius [t]
   (* max-radius (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25)))))))
@@ -203,10 +175,10 @@
               (this-as elem (add-tap-listener elem #(link-tap-signaller link))))))
       (-> link-selection
           maybe-transition
-          (.attr "x1" #(-> % :source positions :x))
-          (.attr "y1" #(-> % :source positions :y))
-          (.attr "x2" #(-> % :target positions :x))
-          (.attr "y2" #(-> % :target positions :y))))
+          (.attr "x1" #(-> % :source positions v/x))
+          (.attr "y1" #(-> % :source positions v/y))
+          (.attr "x2" #(-> % :target positions v/x))
+          (.attr "y2" #(-> % :target positions v/y))))
     (let [node-selection (-> svg (.selectAll ".node") (.data (apply array nodes)))]
       (-> node-selection .enter
           (.append "circle")
@@ -217,8 +189,8 @@
               (this-as elem (add-tap-listener elem #(node-tap-signaller node))))))
       (-> node-selection
           maybe-transition
-          (.attr "cx" (fn [d i] (:x (positions i))))
-          (.attr "cy" (fn [d i] (:y (positions i))))
+          (.attr "cx" (fn [d i] (v/x (positions i))))
+          (.attr "cy" (fn [d i] (v/y (positions i))))
           (.attr "r" (fn [d i] (project-radius (distances-from-camera i))))
           (.style "opacity" (fn [d i] (project-opacity (distances-from-camera i))))))))
 
@@ -227,8 +199,8 @@
 (defn initial-state [svg width height
                      animation-signaller node-tap-signaller link-tap-signaller]
   {:svg svg
-   :view-size (math-vec width height)
-   :camera-pos (math-vec 0 0)
+   :view-size (v/create width height)
+   :camera-pos (v/create 0 0)
    :nodes []
    :edges []
    :projection :fisheye ; Can be :fisheye or :zoom-out
@@ -250,8 +222,9 @@
   (sync-graph! @current-state))
 
 (defn move-camera! [current-state d]
-  (update-state! current-state :camera-pos add-vec
-                 (scalar-multiply d (/ (scroll-scale-for-state @current-state)))))
+  (update-state! current-state :camera-pos v/add
+                 (-> d v/copy (v/multiply
+                     (/ (scroll-scale-for-state @current-state))))))
 
 (defn set-projection! [current-state projection]
   (swap-state-animated! current-state assoc :projection projection))
@@ -265,7 +238,7 @@
 (defn zoom-in-to-pos! [current-state pos]
   (swap-state-animated! current-state assoc
                         :projection :fisheye
-                        :camera-pos pos))
+                        :camera-pos (v/copy pos)))
 
 ;; Layout
 
@@ -309,7 +282,7 @@
 
 (defn node [title x y]
   {:title title
-   :pos (math-vec x y)})
+   :pos (v/create x y)})
 
 (defn link
   "Source and target are indexes into the list of nodes."
@@ -391,7 +364,7 @@
         (fn [arrows]
           (let [dx (+ (if (arrows :left) -10 0) (if (arrows :right) 10 0))
                 dy (+ (if (arrows :up) -10 0) (if (arrows :down) 10 0))]
-            (move-camera! current-state (math-vec dx dy)))))))
+            (move-camera! current-state (v/create dx dy)))))))
 
 (defn switch-zoom-on-spacebar!
   [current-state animation-observable]
@@ -428,8 +401,8 @@
                            e1-center (.-center e1)
                            e2-center (.-center e2)]
                        (if (= (.-type e2) "panstart")
-                         (math-vec 0 0)
-                         (math-vec (- (.-x e1-center) (.-x e2-center))
+                         (v/create 0 0)
+                         (v/create (- (.-x e1-center) (.-x e2-center))
                                    (- (.-y e1-center) (.-y e2-center)))))))))
 
 (defn move-camera-on-pan! [manager current-state animation-observable]
@@ -443,7 +416,7 @@
   "A stream of velocity vectors, one per swipe."
   [manager svg]
   (.map (gesture-observable manager svg "swipe")
-        (fn [e] {:vx (.-velocityX e), :vy (.-velocityY e)})))
+        (fn [e] (v/create (.-velocityX e) (.-velocityY e)))))
 
 (defn scroll-end-observable [svg]
   (let [elem (.node svg)]
@@ -452,8 +425,8 @@
         (.map (constantly :scroll-end)))))
 
 (defn dampen [v]
-  (let [length (vec-length v)]
-    (vec-with-length v (- length swipe-damping-factor))))
+  (let [length (v/length v)]
+    (-> v v/copy (v/set-length (- length swipe-damping-factor)))))
 
 (defn swipe-displacements-observable [manager svg]
   (let [swipes (swipe-observable manager svg)
@@ -464,11 +437,12 @@
       (fn [a]
         (if (= a :scroll-end)
           (.empty rx-observable)
-          (let [{:keys [vx vy]} a]
+          (let [vx (v/x a)
+                vy (v/y a)]
             (.generateWithRelativeTime rx-observable
-                                       (math-vec (* update-interval-ms (or vx 0))
+                                       (v/create (* update-interval-ms (or vx 0))
                                                  (* update-interval-ms (or vy 0)))
-                                       (fn [v] (> (vec-length-sq v) min-slide-speed-sq))
+                                       (fn [v] (> (v/length-sq v) min-slide-speed-sq))
                                        dampen
                                        identity
                                        (constantly update-interval-ms))))))))
@@ -482,7 +456,7 @@
 
 (defn pinch-observable [manager svg]
   (.map (gesture-observable manager svg "pinchmove")
-        (fn [e] {:center (math-vec (-> e .-center .-x) (-> e .-center .-y))
+        (fn [e] {:center (v/create (-> e .-center .-x) (-> e .-center .-y))
                  :scale (.-scale e)})))
 
 (defn zoom-on-pinch! [manager
@@ -509,7 +483,7 @@
   "Stream of locations as math vectors."
   [manager svg]
   (.map (gesture-observable manager svg "tap")
-        (fn [e] (math-vec (-> e .-center .-x) (-> e .-center .-y)))))
+        (fn [e] (v/create (-> e .-center .-x) (-> e .-center .-y)))))
 
 (defn zoom-in-on-tap! [manager
                        current-state
