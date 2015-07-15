@@ -97,6 +97,9 @@
 
 ;; D3 magic
 
+(defn scroll-scale-for-state [state]
+  (if (= :zoom-out (:projection state)) zoom-out-scale 1))
+
 (defn scaled-distance-from-camera
   "Returns the distance of the given point from the camera, scaled so that
   points which would be at the corner of the screen are at distance 1"
@@ -215,7 +218,8 @@
   (sync-graph! @current-state))
 
 (defn move-camera! [current-state d]
-  (update-state! current-state :camera-pos add-vec d))
+  (update-state! current-state :camera-pos add-vec
+                 (scalar-multiply d (/ (scroll-scale-for-state @current-state)))))
 
 (defn set-projection! [current-state projection animation-signaller]
   (swap! current-state assoc :projection projection)
@@ -293,11 +297,15 @@
 
 (defn animation-observable-and-signaller []
   (let [observers (atom [])
-        observable (.create rx-observable #(swap! observers conj %))
+        observable (-> rx-observable
+                       (.create #(swap! observers conj %))
+                       (.replay 1))
         bool->event #(if % :animation-start :animation-end)
         animation-signaller (fn [b]
                               (doseq [o @observers]
                                 (.onNext o (bool->event b))))]
+    (.connect observable) 
+    (animation-signaller false)
     [observable animation-signaller]))
 
 (defn suppress-while-animating [observable animation-observable]
