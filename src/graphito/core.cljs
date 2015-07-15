@@ -242,9 +242,9 @@
 
 (defn zoom-in-to-pos! [current-state pos animation-signaller]
   (swap-state-animated! animation-signaller
-                          current-state assoc
-                          :projection :fisheye
-                          :camera-pos pos))
+                        current-state assoc
+                        :projection :fisheye
+                        :camera-pos pos))
 
 ;; Layout
 
@@ -388,6 +388,7 @@
         (.recognizeWith (.get manager "pan")))
     (-> manager (.add (js/Hammer.Pinch.))
         (.recognizeWith (.get manager "pan")))
+    (-> manager (.add (js/Hammer.Tap.)))
     manager))
 
 (defn gesture-observable [manager svg gesture]
@@ -483,6 +484,26 @@
                           (zoom-out->world-pos @current-state (:center %))
                           animation-signaller)))))
 
+;; Gestures - tap
+
+(defn tap-observable
+  "Stream of locations as math vectors."
+  [manager svg]
+  (.map (gesture-observable manager svg "tap")
+        (fn [e] (math-vec (-> e .-center .-x) (-> e .-center .-y)))))
+
+(defn zoom-in-on-tap! [manager
+                       current-state
+                       animation-observable
+                       animation-signaller]
+  (let [taps (tap-observable manager (:svg @current-state))]
+    (.subscribe
+      taps
+      #(if (= (:projection @current-state) :zoom-out)
+         (zoom-in-to-pos! current-state
+                          (zoom-out->world-pos @current-state %)
+                          animation-signaller)))))
+
 ;; Exported function to do magic
 
 (defn ^:export inhabit [selector]
@@ -505,4 +526,6 @@
     (switch-zoom-on-spacebar!
       current-state animation-observable animation-signaller)
     (zoom-on-pinch!
+      gesture-manager current-state animation-observable animation-signaller)
+    (zoom-in-on-tap!
       gesture-manager current-state animation-observable animation-signaller)))
