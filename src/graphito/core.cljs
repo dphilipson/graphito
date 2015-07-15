@@ -159,8 +159,15 @@
 
 ;; D3 magic
 
-(defn sync-graph! [state & {:keys [animation-signaller]}]
-  (let [{:keys [svg nodes links camera-pos view-size]} state
+(defn sync-graph! [state & {:keys [animate?]}]
+  (let [{:keys [svg
+                nodes
+                links
+                camera-pos
+                view-size
+                animation-signaller
+                node-tap-signaller
+                link-tap-signaller]} state
         {:keys [project-displacement
                 project-radius
                 project-opacity]} (projectors-for-state state)
@@ -170,7 +177,7 @@
                          .transition
                          (.duration 500)
                          (.each "end" #(animation-signaller false))))
-        maybe-transition (if animation-signaller transition identity)
+        maybe-transition (if animate? transition identity)
         positions (mapv (fn [node]
                           (view-position state
                                          (:pos node)
@@ -204,23 +211,26 @@
 
 ;; State management
 
-(defn initial-state [svg width height]
+(defn initial-state [svg width height
+                     animation-signaller node-tap-signaller link-tap-signaller]
   {:svg svg
    :view-size (math-vec width height)
    :camera-pos (math-vec 0 0)
    :nodes []
    :edges []
-   :projection :fisheye}) ; Can be :fisheye or :zoom-out
+   :projection :fisheye ; Can be :fisheye or :zoom-out
+   ; Signallers are part of state because they are needed to render the graph.
+   :animation-signaller animation-signaller
+   :node-tap-signaller node-tap-signaller
+   :linke-tap-signaller link-tap-signaller})
 
 (defn swap-state! [current-state f & args]
   (apply swap! current-state f args)
   (sync-graph! @current-state))
 
-(defn swap-state-animated! [animation-signaller current-state f & args]
-  ; There's no way to arrange the arguments that isn't awkward. Luckily all the
-  ; uses will probably be right here.
+(defn swap-state-animated! [current-state f & args]
   (apply swap! current-state f args)
-  (sync-graph! @current-state :animation-signaller animation-signaller))
+  (sync-graph! @current-state :animate? true))
 
 (defn update-state! [current-state k f & args]
   (apply swap! current-state update k f args)
@@ -230,19 +240,17 @@
   (update-state! current-state :camera-pos add-vec
                  (scalar-multiply d (/ (scroll-scale-for-state @current-state)))))
 
-(defn set-projection! [current-state projection animation-signaller]
-  (swap-state-animated! animation-signaller
-                        current-state assoc :projection projection))
+(defn set-projection! [current-state projection]
+  (swap-state-animated! current-state assoc :projection projection))
 
-(defn toggle-projection! [current-state animation-signaller]
+(defn toggle-projection! [current-state]
   (let [projection (if (= (:projection @current-state) :fisheye)
                      :zoom-out
                      :fisheye)]
-    (set-projection! current-state projection animation-signaller)))
+    (set-projection! current-state projection)))
 
-(defn zoom-in-to-pos! [current-state pos animation-signaller]
-  (swap-state-animated! animation-signaller
-                        current-state assoc
+(defn zoom-in-to-pos! [current-state pos]
+  (swap-state-animated! current-state assoc
                         :projection :fisheye
                         :camera-pos pos))
 
@@ -373,11 +381,11 @@
             (move-camera! current-state (math-vec dx dy)))))))
 
 (defn switch-zoom-on-spacebar!
-  [current-state animation-observable animation-signaller]
+  [current-state animation-observable]
   (-> key-up-observable
       (.filter #(= 32 (.-keyCode %)))
       (suppress-while-animating animation-observable)
-      (.subscribe #(toggle-projection! current-state animation-signaller))))
+      (.subscribe #(toggle-projection! current-state))))
 
 ;; Gestures
 
@@ -466,8 +474,7 @@
 
 (defn zoom-on-pinch! [manager
                       current-state
-                      animation-observable
-                      animation-signaller]
+                      animation-observable]
   (let [pinches (pinch-observable manager (:svg @current-state))
         pinch-ins (-> pinches (.filter #(< (:scale %) 0.8))
                       (suppress-while-animating animation-observable))
@@ -476,13 +483,12 @@
     (.subscribe
       pinch-ins
       #(if (= (:projection @current-state) :fisheye)
-         (set-projection! current-state :zoom-out animation-signaller)))
+         (set-projection! current-state :zoom-out)))
     (.subscribe
       pinch-outs
       #(if (= (:projection @current-state) :zoom-out)
          (zoom-in-to-pos! current-state
-                          (zoom-out->world-pos @current-state (:center %))
-                          animation-signaller)))))
+                          (zoom-out->world-pos @current-state (:center %)))))))
 
 ;; Gestures - tap
 
@@ -494,15 +500,29 @@
 
 (defn zoom-in-on-tap! [manager
                        current-state
-                       animation-observable
-                       animation-signaller]
+                       animation-observable]
   (let [taps (tap-observable manager (:svg @current-state))]
     (.subscribe
       taps
       #(if (= (:projection @current-state) :zoom-out)
          (zoom-in-to-pos! current-state
-                          (zoom-out->world-pos @current-state %)
-                          animation-signaller)))))
+                          (zoom-out->world-pos @current-state %))))))
+
+;; Gestures - tap on node
+
+(defn observable-and-signaller
+  []
+  (let [observers (atom [])
+        observable (.create rx-observable #(swap! observers conj %))
+        signaller (fn [node] (doseq [o @observers] (.onNext o node)))]
+    [observable signaller]))
+
+(defn focus-node-on-tap! [current-state
+                          node-tap-observable
+                          animation-observable]
+  (-> node-tap-observable
+      (suppress-while-animating animation-observable)
+      (.subscribe #(js/alert "FOO"))))
 
 ;; Exported function to do magic
 
@@ -511,10 +531,19 @@
         width (.-clientWidth element)
         height (.-clientHeight element)
         svg (setup-svg! selector width height)
-        current-state (atom (initial-state svg width height))
         gesture-manager (hammer-manager svg)
         [animation-observable
-         animation-signaller] (animation-observable-and-signaller)]
+         animation-signaller] (animation-observable-and-signaller)
+        [node-tap-observable
+         node-tap-signaller] (observable-and-signaller)
+        [link-tap-observable
+         link-tap-signaller] (observable-and-signaller)
+        current-state (atom (initial-state svg
+                                           width
+                                           height
+                                           animation-signaller
+                                           node-tap-signaller
+                                           link-tap-signaller))]
     (sync-graph! @current-state)
     (load-graph "miserables.json"
                 (fn [graph]
@@ -523,9 +552,7 @@
     (move-camera-on-arrow-keys! current-state animation-observable)
     (move-camera-on-pan! gesture-manager current-state animation-observable)
     (move-camera-on-swipe! gesture-manager current-state animation-observable)
-    (switch-zoom-on-spacebar!
-      current-state animation-observable animation-signaller)
-    (zoom-on-pinch!
-      gesture-manager current-state animation-observable animation-signaller)
-    (zoom-in-on-tap!
-      gesture-manager current-state animation-observable animation-signaller)))
+    (switch-zoom-on-spacebar! current-state animation-observable)
+    (zoom-on-pinch! gesture-manager current-state animation-observable)
+    (zoom-in-on-tap! gesture-manager current-state animation-observable)
+    (focus-node-on-tap! current-state node-tap-observable animation-observable)))
