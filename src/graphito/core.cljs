@@ -90,15 +90,16 @@
 
 (def vec-distance (comp vec-length subtract-vec))
 
-(defn vec-clamp-to-bounds [v bounds]
-  (let [ratios (merge-with (comp js/Math.abs /) bounds v)
-        max-ratio (min 1 (:x ratios) (:y ratios))]
-    (scalar-multiply v max-ratio)))
-
-;; D3 magic
+;; Geometry
 
 (defn scroll-scale-for-state [state]
   (if (= :zoom-out (:projection state)) zoom-out-scale 1))
+
+(defn zoom-out->world-pos [state pos]
+  (let [{:keys [camera-pos view-size]} state
+        view-center (scalar-multiply view-size 0.5)
+        displacement (subtract-vec pos view-center)]
+    (add-vec camera-pos (scalar-multiply displacement (/ zoom-out-scale)))))
 
 (defn scaled-distance-from-camera
   "Returns the distance of the given point from the camera, scaled so that
@@ -155,6 +156,8 @@
 
 (defn projectors-for-state [state]
   (if (= (:projection state) :fisheye) fisheye-projectors zoom-out-projectors))
+
+;; D3 magic
 
 (defn sync-graph! [state & {:keys [animation-signaller]}]
   (let [{:keys [svg nodes links camera-pos view-size]} state
@@ -213,6 +216,12 @@
   (apply swap! current-state f args)
   (sync-graph! @current-state))
 
+(defn swap-state-animated! [animation-signaller current-state f & args]
+  ; There's no way to arrange the arguments that isn't awkward. Luckily all the
+  ; uses will probably be right here.
+  (apply swap! current-state f args)
+  (sync-graph! @current-state :animation-signaller animation-signaller))
+
 (defn update-state! [current-state k f & args]
   (apply swap! current-state update k f args)
   (sync-graph! @current-state))
@@ -222,14 +231,20 @@
                  (scalar-multiply d (/ (scroll-scale-for-state @current-state)))))
 
 (defn set-projection! [current-state projection animation-signaller]
-  (swap! current-state assoc :projection projection)
-  (sync-graph! @current-state :animation-signaller animation-signaller))
+  (swap-state-animated! animation-signaller
+                        current-state assoc :projection projection))
 
 (defn toggle-projection! [current-state animation-signaller]
   (let [projection (if (= (:projection @current-state) :fisheye)
                      :zoom-out
                      :fisheye)]
     (set-projection! current-state projection animation-signaller)))
+
+(defn zoom-in-to-pos! [current-state pos animation-signaller]
+  (swap-state-animated! animation-signaller
+                          current-state assoc
+                          :projection :fisheye
+                          :camera-pos pos))
 
 ;; Layout
 
@@ -443,21 +458,30 @@
 
 ;; Gestures - pinch
 
-(defn pinch-observable
-  "Returns a stream of the scale."
-  [manager svg]
+(defn pinch-observable [manager svg]
   (.map (gesture-observable manager svg "pinchmove")
-        #(.-scale %)))
+        (fn [e] {:center (math-vec (-> e .-center .-x) (-> e .-center .-y))
+                 :scale (.-scale e)})))
 
-(defn zoom-out-on-pinch! [manager
-                          current-state
-                          animation-observable
-                          animation-signaller]
-  (-> (pinch-observable manager (:svg @current-state))
-      (.filter #(< % 0.8))
-      (suppress-while-animating animation-observable)
-      (.subscribe
-        #(set-projection! current-state :zoom-out animation-signaller))))
+(defn zoom-on-pinch! [manager
+                      current-state
+                      animation-observable
+                      animation-signaller]
+  (let [pinches (pinch-observable manager (:svg @current-state))
+        pinch-ins (-> pinches (.filter #(< (:scale %) 0.8))
+                      (suppress-while-animating animation-observable))
+        pinch-outs (-> pinches (.filter #(> (:scale %) 1.2))
+                       (suppress-while-animating animation-observable))]
+    (.subscribe
+      pinch-ins
+      #(if (= (:projection @current-state) :fisheye)
+         (set-projection! current-state :zoom-out animation-signaller)))
+    (.subscribe
+      pinch-outs
+      #(if (= (:projection @current-state) :zoom-out)
+         (zoom-in-to-pos! current-state
+                          (zoom-out->world-pos @current-state (:center %))
+                          animation-signaller)))))
 
 ;; Exported function to do magic
 
@@ -480,5 +504,5 @@
     (move-camera-on-swipe! gesture-manager current-state animation-observable)
     (switch-zoom-on-spacebar!
       current-state animation-observable animation-signaller)
-    (zoom-out-on-pinch!
+    (zoom-on-pinch!
       gesture-manager current-state animation-observable animation-signaller)))
