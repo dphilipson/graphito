@@ -211,15 +211,16 @@
       (-> node-selection
           maybe-transition
           (.attr "transform"
-                 (fn [d i]
-                   (let [scale (project-scale (distances-from-camera i))
+                 (fn [node]
+                   (let [i (:index node)
+                         scale (project-scale (distances-from-camera i))
                          x (v/x (positions i))
                          y (v/y (positions i))]
                      (str "translate(" x "," y ") scale(" scale ")")))))
       (-> node-selection (.selectAll ".node-label")
           maybe-transition
-          (.attr "opacity" (fn [d i]
-                             (project-label-opacity (distances-from-camera i))))
+          (.attr "opacity" (fn [node]
+                             (project-label-opacity (distances-from-camera (:index node)))))
           (.text #(:title %))))))
 
 ;; State management
@@ -308,8 +309,9 @@
 
 ;; JSON loading and parsing
 
-(defn node [title x y]
-  {:title title
+(defn node [index title x y]
+  {:index index
+   :title title
    :pos (v/create x y)})
 
 (defn link
@@ -328,11 +330,12 @@
                             (mapv (fn [l] (link (l "source") (l "target")))))]
              (do-layout! raw-data)
              (let [data-nodes (js->clj (aget raw-data "nodes"))
-                   nodes (mapv (fn [data-node]
-                                 (node (data-node "name")
-                                       (data-node "x")
-                                       (data-node "y"))) data-nodes)]
-               (callback {:nodes nodes :links links}))))))
+                   nodes (vec (map-indexed (fn [i data-node]
+                                              (node i
+                                                    (data-node "name")
+                                                    (data-node "x")
+                                                    (data-node "y"))) data-nodes))]
+                               (callback {:nodes nodes :links links}))))))
 
 ;; Reactive
 
