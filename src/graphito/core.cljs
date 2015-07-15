@@ -34,6 +34,11 @@
 (def displacement-factor 1)
 
 (def max-radius 32)
+(def label-font "Verdana")
+(def label-font-size 24)
+
+(def label-y 42)
+(def label-y-transform (str "translate(0," label-y ")"))
 
 (def zoom-out-scale 0.25)
 
@@ -110,8 +115,8 @@
       (v/add view-center
              (v/multiply displacement (/ projected-r r))))))
 
-(defn project-radius [t]
-  (* max-radius (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25)))))))
+(defn project-scale [t]
+  (min 1 (/ 1 (.pow js/Math 2 (* 2 (- t 0.25))))))
 
 (defn project-opacity [t]
   (cond
@@ -120,13 +125,17 @@
     (<= 2 t 3) (- 0.75 (* 0.75 (- t 2)))
     :else 0))
 
+(defn project-label-opacity [t] 1)
+
 (def fisheye-projectors {:project-displacement project-displacement
-                         :project-radius project-radius
-                         :project-opacity project-opacity})
+                         :project-scale project-scale
+                         :project-opacity project-opacity
+                         :project-label-opacity project-label-opacity})
 
 (def zoom-out-projectors {:project-displacement (partial * zoom-out-scale)
-                          :project-radius (constantly (* zoom-out-scale max-radius))
-                          :project-opacity (constantly 1)})
+                          :project-scale (constantly zoom-out-scale)
+                          :project-opacity (constantly 1)
+                          :project-label-opacity (constantly 0)})
 
 (defn projectors-for-state [state]
   (if (= (:projection state) :fisheye) fisheye-projectors zoom-out-projectors))
@@ -148,8 +157,9 @@
                 node-tap-signaller
                 link-tap-signaller]} state
         {:keys [project-displacement
-                project-radius
-                project-opacity]} (projectors-for-state state)
+                project-scale
+                project-opacity
+                project-label-opacity]} (projectors-for-state state)
         transition (fn [selection]
                      (animation-signaller true)
                      (-> selection
@@ -179,20 +189,38 @@
           (.attr "y1" #(-> % :source positions v/y))
           (.attr "x2" #(-> % :target positions v/x))
           (.attr "y2" #(-> % :target positions v/y))))
-    (let [node-selection (-> svg (.selectAll ".node") (.data (apply array nodes)))]
-      (-> node-selection .enter
-          (.append "circle")
-          (.attr "class" "node")
+    (let [node-selection (-> svg (.selectAll ".node")
+                             (.data (apply array nodes)))
+          new-node-selection (-> node-selection .enter
+                                 (.append "g")
+                                 (.attr "class" "node"))]
+      (-> new-node-selection (.append "circle")
+          (.attr "class" "node-dot")
           (.style "fill" "#777A7A")
+          (.attr "r" max-radius)
           (.each
             (fn [node]
               (this-as elem (add-tap-listener elem #(node-tap-signaller node))))))
+      (-> new-node-selection (.append "text")
+          (.attr "class" "node-label")
+          (.attr "y" ".6em")
+          (.attr "font-family" label-font)
+          (.attr "font-size" (str label-font-size))
+          (.style "text-anchor" "middle")
+          (.attr "transform" label-y-transform))
       (-> node-selection
           maybe-transition
-          (.attr "cx" (fn [d i] (v/x (positions i))))
-          (.attr "cy" (fn [d i] (v/y (positions i))))
-          (.attr "r" (fn [d i] (project-radius (distances-from-camera i))))
-          (.style "opacity" (fn [d i] (project-opacity (distances-from-camera i))))))))
+          (.attr "transform"
+                 (fn [d i]
+                   (let [scale (project-scale (distances-from-camera i))
+                         x (v/x (positions i))
+                         y (v/y (positions i))]
+                     (str "translate(" x "," y ") scale(" scale ")")))))
+      (-> node-selection (.selectAll ".node-label")
+          maybe-transition
+          (.attr "opacity" (fn [d i]
+                             (project-label-opacity (distances-from-camera i))))
+          (.text #(:title %))))))
 
 ;; State management
 
