@@ -40,6 +40,14 @@
 (def label-font-size 24)
 (def hitbox-size 96)
 
+(def deselection-distance 0.4)
+
+(def background-color "#EDF0F2")
+(def link-color "#C9CBCB")
+(def node-color "#777A7A")
+(def node-label-color node-color)
+(def selected-node-color "#FE9F51")
+
 (def label-y 42)
 (def label-y-transform (str "translate(0," label-y ")"))
 (def label-visible-threshold 1.5)
@@ -48,7 +56,7 @@
 
 (def resize-delay-ms 100)
 
-;; SVG setup
+;; DOM setup
 
 (defn disable-touchmove! [container]
   (.on container "touchmove" #(-> d3 .-event .preventDefault)))
@@ -57,7 +65,7 @@
   (-> svg
       (.append "rect")
       (.attr "class" "background")
-      (.attr "fill" "#EDF0F2")
+      (.attr "fill" background-color)
       (.attr "stroke" 0)))
 
 (defn setup-svg! [selector]
@@ -67,6 +75,10 @@
     (disable-touchmove! container)
     (add-background! svg)
     svg))
+
+(defn center-detail-button! [detail-button]
+  (let [width (-> detail-button .node .-offsetWidth)]
+    (.style detail-button "margin-left" (str (/ width -2) "px"))))
 
 ;; Geometry
 
@@ -156,10 +168,13 @@
 
 (defn sync-graph! [state & {:keys [animate?]}]
   (let [{:keys [svg
+                detail-button
                 nodes
                 links
+                selected-node
                 camera-pos
                 view-size
+                projection
                 animation-subject]} state
         {:keys [project-displacement
                 project-scale
@@ -182,7 +197,7 @@
       (-> link-selection .enter
           (.append "line")
           (.attr "class" "link")
-          (.style "stroke" "#C9CBCB")
+          (.style "stroke" link-color)
           (.style "stroke-width" 3))
       (-> link-selection
           maybe-transition
@@ -197,7 +212,6 @@
                                  (.attr "class" "node"))]
       (-> new-node-selection (.append "circle")
           (.attr "class" "node-dot")
-          (.style "fill" "#777A7A")
           (.attr "r" max-radius))
       ; Having too many labels at once hurts performance. Add/remove labels as
       ; they move in and out of view.
@@ -213,6 +227,7 @@
           (.style "font-family" label-font)
           (.style "font-size" (str label-font-size))
           (.style "text-anchor" "middle")
+          (.style "fill" node-label-color)
           (.attr "y" label-y))
       (-> node-selection
           ; Nodes beyond a distance threshold which do have labels
@@ -220,6 +235,8 @@
           (.selectAll ".node-label")
           (.remove))
       (-> node-selection
+          (.style "fill"
+                  #(if (= % selected-node) selected-node-color node-color))
           maybe-transition
           (.attr "transform"
                  (fn [node]
@@ -233,6 +250,8 @@
           (.attr "opacity" (fn [node]
                              (project-label-opacity (distance-for-node node))))
           (.text #(:title %))))
+    (.classed detail-button "invisible" (or (nil? selected-node)
+                                            (= projection :zoom-out)))
     (when animate?
       (.onNext animation-subject :animation-start)
       (js/setTimeout
@@ -249,26 +268,35 @@
    :camera-pos (v/zero)
    :nodes []
    :edges []
+   :selected-node nil
    :projection :fisheye ; Can be :fisheye or :zoom-out
    ; Subject is part of state because it is needed to render the graph.
    :animation-subject animation-subject})
 
+(defn deselect-node-if-away! [current-state]
+  (when-let [selected-node (:selected-node @current-state)]
+    (when (and (> (scaled-distance-from-camera @current-state (:pos selected-node))
+                   deselection-distance)
+               (= (:projection @current-state) :fisheye))
+      (swap! current-state assoc :selected-node nil))))
+
+(defn enforce-state-invariants! [current-state]
+  (deselect-node-if-away! current-state)) ; The only invariant for now
+
 (defn swap-state! [current-state f & args]
   (apply swap! current-state f args)
+  (enforce-state-invariants! current-state)
   (sync-graph! @current-state))
 
 (defn swap-state-animated! [current-state f & args]
   (apply swap! current-state f args)
+  (enforce-state-invariants! current-state)
   (sync-graph! @current-state :animate? true))
 
-(defn update-state! [current-state k f & args]
-  (apply swap! current-state update k f args)
-  (sync-graph! @current-state))
-
 (defn move-camera! [current-state d]
-  (update-state! current-state :camera-pos v/add
-                 (-> d v/copy (v/multiply
-                                (/ (scroll-scale-for-state @current-state))))))
+  (swap-state! current-state update :camera-pos v/add
+               (-> d v/copy (v/multiply
+                              (/ (scroll-scale-for-state @current-state))))))
 
 (defn set-projection! [current-state projection]
   (swap-state-animated! current-state assoc :projection projection))
@@ -283,6 +311,12 @@
   (swap-state-animated! current-state assoc
                         :projection :fisheye
                         :camera-pos (v/copy pos)))
+
+(defn select-and-zoom-to-node! [current-state node]
+  (swap-state-animated! current-state assoc
+                        :projection :fisheye
+                        :camera-pos (v/copy (:pos node))
+                        :selected-node node))
 
 ;; Layout
 
@@ -358,18 +392,11 @@
 
 ;; Resize
 
-(defn fix-detail-button-position! [state]
-  (let [{:keys [detail-button]} state
-        button-width (-> detail-button .node .-offsetWidth)]
-    (-> detail-button
-        (.style "margin-left" (str (/ button-width -2) "px")))))
-
 (defn set-size! [current-state width height]
   (let [svg (:svg @current-state)
         background (.select svg ".background")]
     (-> svg (.attr "width" width) (.attr "height" height))
-    (swap-state! current-state assoc :view-size (v/create width height))
-    (fix-detail-button-position! @current-state)))
+    (swap-state! current-state assoc :view-size (v/create width height))))
 
 ; Syncing on window size rather than the size of the surrounding container
 ; avoids a layout bug on iOS in which the new container size's height is larger
@@ -600,7 +627,7 @@
     {:node @closest-node
      :distance (js/Math.sqrt @closest-distance-sq)}))
 
-(defn focus-node-on-tap! [manager current-state animation-observable]
+(defn select-node-on-tap! [manager current-state animation-observable]
   (let [taps (tap-observable manager)]
     (-> taps
         (suppress-while-animating animation-observable)
@@ -608,7 +635,7 @@
         (.filter #(< (:distance %) (/ hitbox-size 2)))
         (.subscribe (fn [{:keys [node]}]
                       (if (= (:projection @current-state) :fisheye)
-                        (zoom-in-to-pos! current-state (:pos node))))))))
+                        (select-and-zoom-to-node! current-state node)))))))
 
 ;; Exported function to do magic
 
@@ -620,6 +647,7 @@
         current-state (atom (initial-state svg
                                            detail-button
                                            animation-subject))]
+    (center-detail-button! detail-button)
     (sync-on-window-size! current-state)
     (load-graph "miserables.json"
                 (fn [graph]
@@ -632,4 +660,4 @@
     (switch-zoom-on-spacebar! current-state animation-subject)
     (zoom-on-pinch! gesture-manager current-state animation-subject)
     (zoom-in-on-tap! gesture-manager current-state animation-subject)
-    (focus-node-on-tap! gesture-manager current-state animation-subject)))
+    (select-node-on-tap! gesture-manager current-state animation-subject)))
