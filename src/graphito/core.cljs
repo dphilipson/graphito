@@ -166,11 +166,11 @@
                 project-opacity
                 project-label-opacity]} (projectors-for-state state)
         transition (fn [selection]
-                     (.onNext animation-subject :start-animation)
+                     (.onNext animation-subject :animation-start)
                      (-> selection
                          .transition
                          (.duration 500)
-                         (.each "end" #(.onNext animation-subject :end-animation))))
+                         (.each "end" #(.onNext animation-subject :animation-end))))
         maybe-transition (if animate? transition identity)
         positions (mapv (fn [node]
                           (view-position state
