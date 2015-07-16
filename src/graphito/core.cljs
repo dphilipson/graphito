@@ -26,7 +26,7 @@
 
 (def update-interval-ms 15)
 
-(def swipe-damping-factor 1)
+(def swipe-damping-factor 0.75)
 (def min-slide-speed-sq 16)
 
 ; A factor of 1 is an ellipse fitting the bounds of the window. Higher factors
@@ -39,6 +39,7 @@
 
 (def label-y 42)
 (def label-y-transform (str "translate(0," label-y ")"))
+(def label-visible-threshold 1.5)
 
 (def zoom-out-scale 0.25)
 
@@ -125,7 +126,11 @@
     (<= 2 t 3) (- 0.75 (* 0.75 (- t 2)))
     :else 0))
 
-(defn project-label-opacity [t] 1)
+(defn project-label-opacity [t]
+  (cond
+    (<= t 1) 1
+    (<= 1 t 1.5) (- 3 (* 2 t))
+    :else 0))
 
 (def fisheye-projectors {:project-displacement project-displacement
                          :project-scale project-scale
@@ -173,7 +178,9 @@
                                          project-displacement)) nodes)
         distances-from-camera
         (mapv (fn [node]
-                (scaled-distance-from-camera state (:pos node))) nodes)]
+                (scaled-distance-from-camera state (:pos node))) nodes)
+        
+        distance-for-node (fn [node] (distances-from-camera (:index node)))]
     (let [link-selection (-> svg (.selectAll ".link") (.data (apply array links)))]
       (-> link-selection .enter
           (.append "line")
@@ -201,13 +208,26 @@
           (.each
             (fn [node]
               (this-as elem (add-tap-listener elem #(node-tap-signaller node))))))
-      (-> new-node-selection (.append "text")
+      ; Having too many labels at once hurts performance. Add/remove labels as
+      ; they move in and out of view.
+      (-> node-selection
+          ; Nodes within a distance threshold which do not have labels
+          (.filter
+            (fn [node]
+              (this-as elem (and (< (distance-for-node node) label-visible-threshold)
+                                 (nil? (.querySelector elem ".node-label"))))))
+          (.append "text")
           (.attr "class" "node-label")
-          (.attr "y" ".6em")
-          (.attr "font-family" label-font)
-          (.attr "font-size" (str label-font-size))
+          (.attr "dy" ".6em")
+          (.style "font-family" label-font)
+          (.style "font-size" (str label-font-size))
           (.style "text-anchor" "middle")
-          (.attr "transform" label-y-transform))
+          (.attr "y" label-y))
+      (-> node-selection
+          ; Nodes beyond a distance threshold which do have labels
+          (.filter #(>= (distance-for-node %) label-visible-threshold))
+          (.selectAll ".node-label")
+          (.remove))
       (-> node-selection
           maybe-transition
           (.attr "transform"
@@ -220,7 +240,7 @@
       (-> node-selection (.selectAll ".node-label")
           maybe-transition
           (.attr "opacity" (fn [node]
-                             (project-label-opacity (distances-from-camera (:index node)))))
+                             (project-label-opacity (distance-for-node node))))
           (.text #(:title %))))))
 
 ;; State management
@@ -409,7 +429,9 @@
 (defn hammer-manager [svg]
   (let [manager (js/Hammer.Manager. (.node svg))]
     (.add manager (js/Hammer.Pan.))
-    (-> manager (.add (js/Hammer.Swipe.))
+    (-> manager (.add (js/Hammer.Swipe.
+                        (js-obj "threshold" 0
+                                "velocity" 0)))
         (.recognizeWith (.get manager "pan")))
     (-> manager (.add (js/Hammer.Pinch.))
         (.recognizeWith (.get manager "pan")))
@@ -494,10 +516,8 @@
                       current-state
                       animation-observable]
   (let [pinches (pinch-observable manager (:svg @current-state))
-        pinch-ins (-> pinches (.filter #(< (:scale %) 0.8))
-                      (suppress-while-animating animation-observable))
-        pinch-outs (-> pinches (.filter #(> (:scale %) 1.2))
-                       (suppress-while-animating animation-observable))]
+        pinch-ins (-> pinches (.filter #(< (:scale %) 0.8)))
+        pinch-outs (-> pinches (.filter #(> (:scale %) 1.2)))]
     (.subscribe
       pinch-ins
       #(if (= (:projection @current-state) :fisheye)
