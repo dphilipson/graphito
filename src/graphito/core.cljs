@@ -80,6 +80,13 @@
   (let [width (-> detail-button .node .-offsetWidth)]
     (.style detail-button "margin-left" (str (/ width -2) "px"))))
 
+(defn prevent-focus-on-detail-button! [detail-button]
+  (.on detail-button "mouseup" #(-> detail-button .node .blur)))
+
+(defn setup-detail-button! [detail-button]
+  (center-detail-button! detail-button)
+  (prevent-focus-on-detail-button! detail-button))
+
 ;; Geometry
 
 (defn scroll-scale-for-state [state]
@@ -647,7 +654,7 @@
         current-state (atom (initial-state svg
                                            detail-button
                                            animation-subject))]
-    (center-detail-button! detail-button)
+    (setup-detail-button! detail-button)
     (sync-on-window-size! current-state)
     (load-graph "miserables.json"
                 (fn [graph]
