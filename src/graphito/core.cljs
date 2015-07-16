@@ -258,7 +258,7 @@
    ; subjects are part of state because they are needed to render the graph.
    :animation-subject animation-subject
    :node-tap-subject node-tap-subject
-   :linke-tap-subject link-tap-subject})
+   :link-tap-subject link-tap-subject})
 
 (defn swap-state! [current-state f & args]
   (apply swap! current-state f args)
