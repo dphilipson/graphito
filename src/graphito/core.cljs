@@ -158,19 +158,19 @@
                 links
                 camera-pos
                 view-size
-                animation-signaller
-                node-tap-signaller
-                link-tap-signaller]} state
+                animation-subject
+                node-tap-subject
+                link-tap-subject]} state
         {:keys [project-displacement
                 project-scale
                 project-opacity
                 project-label-opacity]} (projectors-for-state state)
         transition (fn [selection]
-                     (animation-signaller true)
+                     (.onNext animation-subject :start-animation)
                      (-> selection
                          .transition
                          (.duration 500)
-                         (.each "end" #(animation-signaller false))))
+                         (.each "end" #(.onNext animation-subject :end-animation))))
         maybe-transition (if animate? transition identity)
         positions (mapv (fn [node]
                           (view-position state
@@ -189,7 +189,7 @@
           (.style "stroke-width" 3)
           (.each
             (fn [link]
-              (this-as elem (add-tap-listener elem #(link-tap-signaller link))))))
+              (this-as elem (add-tap-listener elem #(.onNext link-tap-subject link))))))
       (-> link-selection
           maybe-transition
           (.attr "x1" #(-> % :source positions v/x))
@@ -207,7 +207,7 @@
           (.attr "r" max-radius)
           (.each
             (fn [node]
-              (this-as elem (add-tap-listener elem #(node-tap-signaller node))))))
+              (this-as elem (add-tap-listener elem #(.onNext node-tap-subject node))))))
       ; Having too many labels at once hurts performance. Add/remove labels as
       ; they move in and out of view.
       (-> node-selection
@@ -246,17 +246,17 @@
 ;; State management
 
 (defn initial-state [svg width height
-                     animation-signaller node-tap-signaller link-tap-signaller]
+                     animation-subject node-tap-subject link-tap-subject]
   {:svg svg
    :view-size (v/create width height)
    :camera-pos (v/create 0 0)
    :nodes []
    :edges []
    :projection :fisheye ; Can be :fisheye or :zoom-out
-   ; Signallers are part of state because they are needed to render the graph.
-   :animation-signaller animation-signaller
-   :node-tap-signaller node-tap-signaller
-   :linke-tap-signaller link-tap-signaller})
+   ; subjects are part of state because they are needed to render the graph.
+   :animation-subject animation-subject
+   :node-tap-subject node-tap-subject
+   :linke-tap-subject link-tap-subject})
 
 (defn swap-state! [current-state f & args]
   (apply swap! current-state f args)
@@ -361,22 +361,8 @@
 
 (def tick-observable (js/Rx.Observable.interval update-interval-ms))
 
-(defn animation-observable-and-signaller
-  "Returns an observable paired with a function which can be called to emit
-  events on the observable. Subscribers to the observable immediately
-  receive the most recently emitted value."
-  []
-  (let [observers (atom [])
-        observable (-> rx-observable
-                       (.create #(swap! observers conj %))
-                       (.startWith :animation-end)
-                       (.replay 1))
-        bool->event #(if % :animation-start :animation-end)
-        animation-signaller (fn [b]
-                              (doseq [o @observers]
-                                (.onNext o (bool->event b))))]
-    (.connect observable) 
-    [observable animation-signaller]))
+(defn animation-subject []
+  (js/Rx.BehaviorSubject. :animation-end))
 
 (defn suppress-while-animating [observable animation-observable]
   (.flatMapLatest animation-observable
@@ -438,17 +424,18 @@
     (.add manager (js/Hammer.Tap.))
     manager))
 
-(defn gesture-observable [manager svg gesture]
-  (.create rx-observable
-           (fn [observer] (.on manager gesture #(.onNext observer %)))))
+(defn gesture-observable [manager gesture]
+  (let [subject (js/Rx.Subject.)]
+    (.on manager gesture #(.onNext subject %))
+    subject))
 
 ;; Gestures - pan
 
-(defn pan-observable [manager svg]
-  (gesture-observable manager svg "panstart panmove"))
+(defn pan-observable [manager]
+  (gesture-observable manager "panstart panmove"))
 
-(defn pan-deltas-observable [manager svg]
-  (-> (pan-observable manager svg)
+(defn pan-deltas-observable [manager]
+  (-> (pan-observable manager)
       (.bufferWithCount 2 1)
       (.map (fn [es] (let [[e1 e2] es
                            e1-center (.-center e1)
@@ -459,7 +446,7 @@
                                    (- (.-y e1-center) (.-y e2-center)))))))))
 
 (defn move-camera-on-pan! [manager current-state animation-observable]
-  (-> (pan-deltas-observable manager (:svg @current-state))
+  (-> (pan-deltas-observable manager)
       (suppress-while-animating animation-observable)
       (.subscribe (partial move-camera! current-state))))
 
@@ -467,8 +454,8 @@
 
 (defn swipe-observable 
   "A stream of velocity vectors, one per swipe."
-  [manager svg]
-  (.map (gesture-observable manager svg "swipe")
+  [manager]
+  (.map (gesture-observable manager "swipe")
         (fn [e] (v/create (.-velocityX e) (.-velocityY e)))))
 
 (defn scroll-end-observable [svg]
@@ -482,7 +469,7 @@
     (-> v v/copy (v/set-length (- length swipe-damping-factor)))))
 
 (defn swipe-displacements-observable [manager svg]
-  (let [swipes (swipe-observable manager svg)
+  (let [swipes (swipe-observable manager)
         scroll-ends (scroll-end-observable svg)
         actions (.merge swipes scroll-ends)]
     (.flatMapLatest
@@ -507,15 +494,15 @@
 
 ;; Gestures - pinch
 
-(defn pinch-observable [manager svg]
-  (.map (gesture-observable manager svg "pinchmove")
+(defn pinch-observable [manager]
+  (.map (gesture-observable manager "pinchmove")
         (fn [e] {:center (v/create (-> e .-center .-x) (-> e .-center .-y))
                  :scale (.-scale e)})))
 
 (defn zoom-on-pinch! [manager
                       current-state
                       animation-observable]
-  (let [pinches (pinch-observable manager (:svg @current-state))
+  (let [pinches (pinch-observable manager)
         pinch-ins (-> pinches (.filter #(< (:scale %) 0.8)))
         pinch-outs (-> pinches (.filter #(> (:scale %) 1.2)))]
     (.subscribe
@@ -532,14 +519,14 @@
 
 (defn tap-observable
   "Stream of locations as math vectors."
-  [manager svg]
-  (.map (gesture-observable manager svg "tap")
+  [manager]
+  (.map (gesture-observable manager "tap")
         (fn [e] (v/create (-> e .-center .-x) (-> e .-center .-y)))))
 
 (defn zoom-in-on-tap! [manager
                        current-state
                        animation-observable]
-  (let [taps (tap-observable manager (:svg @current-state))]
+  (let [taps (tap-observable manager)]
     (.subscribe
       taps
       #(if (= (:projection @current-state) :zoom-out)
@@ -547,13 +534,6 @@
                           (zoom-out->world-pos @current-state %))))))
 
 ;; Gestures - tap on node
-
-(defn observable-and-signaller
-  []
-  (let [observers (atom [])
-        observable (.create rx-observable #(swap! observers conj %))
-        signaller (fn [node] (doseq [o @observers] (.onNext o node)))]
-    [observable signaller]))
 
 (defn focus-node-on-tap! [current-state
                           node-tap-observable
@@ -572,27 +552,24 @@
         height (.-clientHeight element)
         svg (setup-svg! selector width height)
         gesture-manager (hammer-manager svg)
-        [animation-observable
-         animation-signaller] (animation-observable-and-signaller)
-        [node-tap-observable
-         node-tap-signaller] (observable-and-signaller)
-        [link-tap-observable
-         link-tap-signaller] (observable-and-signaller)
+        animation-subject (animation-subject)
+        node-tap-subject (js/Rx.Subject.)
+        link-tap-subject (js/Rx.Subject.)
         current-state (atom (initial-state svg
                                            width
                                            height
-                                           animation-signaller
-                                           node-tap-signaller
-                                           link-tap-signaller))]
+                                           animation-subject
+                                           node-tap-subject
+                                           link-tap-subject))]
     (sync-graph! @current-state)
     (load-graph "miserables.json"
                 (fn [graph]
                   (let [{:keys [nodes links]} graph]
                     (swap-state! current-state assoc :nodes nodes :links links))))
-    (move-camera-on-arrow-keys! current-state animation-observable)
-    (move-camera-on-pan! gesture-manager current-state animation-observable)
-    (move-camera-on-swipe! gesture-manager current-state animation-observable)
-    (switch-zoom-on-spacebar! current-state animation-observable)
-    (zoom-on-pinch! gesture-manager current-state animation-observable)
-    (zoom-in-on-tap! gesture-manager current-state animation-observable)
-    (focus-node-on-tap! current-state node-tap-observable animation-observable)))
+    (move-camera-on-arrow-keys! current-state animation-subject)
+    (move-camera-on-pan! gesture-manager current-state animation-subject)
+    (move-camera-on-swipe! gesture-manager current-state animation-subject)
+    (switch-zoom-on-spacebar! current-state animation-subject)
+    (zoom-on-pinch! gesture-manager current-state animation-subject)
+    (zoom-in-on-tap! gesture-manager current-state animation-subject)
+    (focus-node-on-tap! current-state node-tap-subject animation-subject)))
