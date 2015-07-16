@@ -355,25 +355,36 @@
 
 ;; Resize
 
-(defn sync-on-container-size! [current-state selector]
-  (let [container (.select d3 selector)
-        element (.node container)
-        width (.-clientWidth element)
-        height (.-clientHeight element)
-        svg (:svg @current-state)
+(defn set-size! [current-state width height]
+  (let [svg (:svg @current-state)
         background (.select svg ".background")]
     (-> svg (.attr "width" width) (.attr "height" height))
     (-> background (.attr "width" width) (.attr "height" height))
     (swap-state! current-state assoc :view-size (v/create width height))))
 
+; Syncing on window size rather than the size of the surrounding container
+; avoids a layout bug on iOS in which the new container size's height is larger
+; than the screen. However, it assumes we are filling the whole screen, so if
+; we ever decide to fill less of the screen instead then we should use
+; sync-on-container-size! instead.
+
+(defn sync-on-window-size! [current-state]
+  (set-size! current-state (.-innerWidth js/window) (.-innerHeight js/window)))
+
+(defn sync-on-container-size! [current-state selector]
+  (let [container (.select d3 selector)
+        element (.node container)
+        width (.-clientWidth element)
+        height (.-clientHeight element)]
+    (set-size! current-state width height)))
+
 (def resize-observable
   (-> rx-observable (.fromEvent js/window "resize")
-      (.map :resize)
       (.debounce resize-delay-ms)))
 
 (defn respond-to-resize! [current-state selector]
   (.subscribe resize-observable
-              #(sync-on-container-size! current-state selector)))
+              #(sync-on-window-size! current-state selector)))
 
 ;; Animation
 
@@ -580,7 +591,7 @@
     {:node @closest-node
      :distance (js/Math.sqrt @closest-distance-sq)}))
 
-(defn focus-node-on-tap-2! [manager current-state animation-observable]
+(defn focus-node-on-tap! [manager current-state animation-observable]
   (let [taps (tap-observable manager)]
     (-> taps
         (suppress-while-animating animation-observable)
@@ -603,7 +614,7 @@
                                            width
                                            height
                                            animation-subject))]
-    (sync-on-container-size! current-state selector)
+    (sync-on-window-size! current-state)
     (load-graph "miserables.json"
                 (fn [graph]
                   (let [{:keys [nodes links]} graph]
@@ -615,4 +626,4 @@
     (switch-zoom-on-spacebar! current-state animation-subject)
     (zoom-on-pinch! gesture-manager current-state animation-subject)
     (zoom-in-on-tap! gesture-manager current-state animation-subject)
-    (focus-node-on-tap-2! gesture-manager current-state animation-subject)))
+    (focus-node-on-tap! gesture-manager current-state animation-subject)))
