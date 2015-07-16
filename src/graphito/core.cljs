@@ -45,27 +45,26 @@
 
 (def zoom-out-scale 0.25)
 
+(def resize-delay-ms 100)
+
 ;; SVG setup
 
 (defn disable-touchmove! [container]
   (.on container "touchmove" #(-> d3 .-event .preventDefault)))
 
-(defn add-background! [svg width height]
+(defn add-background! [svg]
   (-> svg
       (.append "rect")
-      (.attr "width" width)
-      (.attr "height" height)
+      (.attr "class" "background")
       (.attr "fill" "#EDF0F2")
       (.attr "stroke" 0)))
 
-(defn setup-svg! [selector width height]
+(defn setup-svg! [selector]
   (let [container (.select d3 selector)
         svg (-> container
-                (.append "svg")
-                (.attr "width" width)
-                (.attr "height" height))]
+                (.append "svg"))]
     (disable-touchmove! container)
-    (add-background! svg width height)
+    (add-background! svg)
     svg))
 
 ;; Geometry
@@ -364,6 +363,30 @@
 
 (def tick-observable (js/Rx.Observable.interval update-interval-ms))
 
+;; Resize
+
+(defn sync-on-container-size! [current-state selector]
+  (let [container (.select d3 selector)
+        element (.node container)
+        width (.-clientWidth element)
+        height (.-clientHeight element)
+        svg (:svg @current-state)
+        background (.select svg ".background")]
+    (-> svg (.attr "width" width) (.attr "height" height))
+    (-> background (.attr "width" width) (.attr "height" height))
+    (swap-state! current-state assoc :view-size (v/create width height))))
+
+(def resize-observable
+  (-> rx-observable (.fromEvent js/window "resize")
+      (.map :resize)
+      (.debounce resize-delay-ms)))
+
+(defn respond-to-resize! [current-state selector]
+  (.subscribe resize-observable
+              #(sync-on-container-size! current-state selector)))
+
+;; Animation
+
 (defn animation-subject []
   (js/Rx.BehaviorSubject. :animation-end))
 
@@ -418,15 +441,15 @@
 (defn hammer-manager [svg]
   (let [manager (js/Hammer.Manager. (.node svg))]
     (.add manager (js/Hammer.Pan.
-                    (js-obj "threshold" 10)))
+                    (js-obj "threshold" 15)))
     (-> manager (.add (js/Hammer.Swipe.
-                        (js-obj "threshold" 10
+                        (js-obj "threshold" 15
                                 "velocity" 0)))
         (.recognizeWith (.get manager "pan")))
     (-> manager (.add (js/Hammer.Pinch.))
         (.recognizeWith (.get manager "pan")))
     (.add manager (js/Hammer.Tap.
-                    (js-obj "threshold" 10)))
+                    (js-obj "threshold" 15)))
     manager))
 
 (defn gesture-observable [manager gesture]
@@ -555,7 +578,7 @@
   (let [element (-> d3 (.select selector) .node)
         width (.-clientWidth element)
         height (.-clientHeight element)
-        svg (setup-svg! selector width height)
+        svg (setup-svg! selector)
         gesture-manager (hammer-manager svg)
         animation-subject (animation-subject)
         node-tap-subject (js/Rx.Subject.)
@@ -566,11 +589,12 @@
                                            animation-subject
                                            node-tap-subject
                                            link-tap-subject))]
-    (sync-graph! @current-state)
+    (sync-on-container-size! current-state selector)
     (load-graph "miserables.json"
                 (fn [graph]
                   (let [{:keys [nodes links]} graph]
                     (swap-state! current-state assoc :nodes nodes :links links))))
+    (respond-to-resize! current-state selector)
     (move-camera-on-arrow-keys! current-state animation-subject)
     (move-camera-on-pan! gesture-manager current-state animation-subject)
     (move-camera-on-swipe! gesture-manager current-state animation-subject)
