@@ -240,10 +240,13 @@
 
 ;; State management
 
-(defn initial-state [svg width height animation-subject]
+(defn initial-state [svg
+                     detail-button
+                     animation-subject]
   {:svg svg
-   :view-size (v/create width height)
-   :camera-pos (v/create 0 0)
+   :detail-button detail-button
+   :view-size (v/zero)
+   :camera-pos (v/zero)
    :nodes []
    :edges []
    :projection :fisheye ; Can be :fisheye or :zoom-out
@@ -355,12 +358,18 @@
 
 ;; Resize
 
+(defn fix-detail-button-position! [state]
+  (let [{:keys [detail-button]} state
+        button-width (-> detail-button .node .-offsetWidth)]
+    (-> detail-button
+        (.style "margin-left" (str (/ button-width -2) "px")))))
+
 (defn set-size! [current-state width height]
   (let [svg (:svg @current-state)
         background (.select svg ".background")]
     (-> svg (.attr "width" width) (.attr "height" height))
-    (-> background (.attr "width" width) (.attr "height" height))
-    (swap-state! current-state assoc :view-size (v/create width height))))
+    (swap-state! current-state assoc :view-size (v/create width height))
+    (fix-detail-button-position! @current-state)))
 
 ; Syncing on window size rather than the size of the surrounding container
 ; avoids a layout bug on iOS in which the new container size's height is larger
@@ -382,9 +391,9 @@
   (-> rx-observable (.fromEvent js/window "resize")
       (.debounce resize-delay-ms)))
 
-(defn respond-to-resize! [current-state selector]
+(defn respond-to-resize! [current-state]
   (.subscribe resize-observable
-              #(sync-on-window-size! current-state selector)))
+              #(sync-on-window-size! current-state)))
 
 ;; Animation
 
@@ -603,23 +612,20 @@
 
 ;; Exported function to do magic
 
-(defn ^:export inhabit [selector]
-  (let [element (-> d3 (.select selector) .node)
-        width (.-clientWidth element)
-        height (.-clientHeight element)
-        svg (setup-svg! selector)
+(defn ^:export inhabit [container-selector detail-button-selector]
+  (let [svg (setup-svg! container-selector)
+        detail-button (.select d3 detail-button-selector)
         gesture-manager (hammer-manager svg)
         animation-subject (animation-subject)
         current-state (atom (initial-state svg
-                                           width
-                                           height
+                                           detail-button
                                            animation-subject))]
     (sync-on-window-size! current-state)
     (load-graph "miserables.json"
                 (fn [graph]
                   (let [{:keys [nodes links]} graph]
                     (swap-state! current-state assoc :nodes nodes :links links))))
-    (respond-to-resize! current-state selector)
+    (respond-to-resize! current-state)
     (move-camera-on-arrow-keys! current-state animation-subject)
     (move-camera-on-pan! gesture-manager current-state animation-subject)
     (move-camera-on-swipe! gesture-manager current-state animation-subject)
