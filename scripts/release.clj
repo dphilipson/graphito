@@ -10,5 +10,5 @@
      :externs ["externs/d3_externs_min.js"
                "externs/rx.all.min.js"
                "externs/hammer.min.js"]
-     :verbose false})
+     :verbose true})
   (println "... done. Elapsed" (/ (- (System/nanoTime) start) 1e9) "seconds"))

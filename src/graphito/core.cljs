@@ -26,6 +26,8 @@
 
 (def update-interval-ms 15)
 
+(def transition-duration-ms 500)
+
 (def swipe-damping-factor 0.75)
 (def min-slide-speed-sq 16)
 
@@ -165,12 +167,9 @@
                 project-scale
                 project-opacity
                 project-label-opacity]} (projectors-for-state state)
-        transition (fn [selection]
-                     (.onNext animation-subject :animation-start)
-                     (-> selection
-                         .transition
-                         (.duration 500)
-                         (.each "end" #(.onNext animation-subject :animation-end))))
+        transition #(-> %
+                        .transition
+                        (.duration transition-duration-ms))
         maybe-transition (if animate? transition identity)
         positions (mapv (fn [node]
                           (view-position state
@@ -179,7 +178,7 @@
         distances-from-camera
         (mapv (fn [node]
                 (scaled-distance-from-camera state (:pos node))) nodes)
-        
+
         distance-for-node (fn [node] (distances-from-camera (:index node)))]
     (let [link-selection (-> svg (.selectAll ".link") (.data (apply array links)))]
       (-> link-selection .enter
@@ -241,7 +240,11 @@
           maybe-transition
           (.attr "opacity" (fn [node]
                              (project-label-opacity (distance-for-node node))))
-          (.text #(:title %))))))
+          (.text #(:title %))))
+    (when animate?
+      (.onNext animation-subject :animation-start)
+      (js/setTimeout
+        #(.onNext animation-subject :animation-end) transition-duration-ms))))
 
 ;; State management
 
@@ -273,7 +276,7 @@
 (defn move-camera! [current-state d]
   (update-state! current-state :camera-pos v/add
                  (-> d v/copy (v/multiply
-                     (/ (scroll-scale-for-state @current-state))))))
+                                (/ (scroll-scale-for-state @current-state))))))
 
 (defn set-projection! [current-state projection]
   (swap-state-animated! current-state assoc :projection projection))
@@ -351,11 +354,11 @@
              (do-layout! raw-data)
              (let [data-nodes (js->clj (aget raw-data "nodes"))
                    nodes (vec (map-indexed (fn [i data-node]
-                                              (node i
-                                                    (data-node "name")
-                                                    (data-node "x")
-                                                    (data-node "y"))) data-nodes))]
-                               (callback {:nodes nodes :links links}))))))
+                                             (node i
+                                                   (data-node "name")
+                                                   (data-node "x")
+                                                   (data-node "y"))) data-nodes))]
+               (callback {:nodes nodes :links links}))))))
 
 ;; Reactive
 
@@ -414,14 +417,16 @@
 
 (defn hammer-manager [svg]
   (let [manager (js/Hammer.Manager. (.node svg))]
-    (.add manager (js/Hammer.Pan.))
+    (.add manager (js/Hammer.Pan.
+                    (js-obj "threshold" 10)))
     (-> manager (.add (js/Hammer.Swipe.
-                        (js-obj "threshold" 0
+                        (js-obj "threshold" 10
                                 "velocity" 0)))
         (.recognizeWith (.get manager "pan")))
     (-> manager (.add (js/Hammer.Pinch.))
         (.recognizeWith (.get manager "pan")))
-    (.add manager (js/Hammer.Tap.))
+    (.add manager (js/Hammer.Tap.
+                    (js-obj "threshold" 10)))
     manager))
 
 (defn gesture-observable [manager gesture]
