@@ -38,6 +38,7 @@
 (def max-radius 32)
 (def label-font "Verdana")
 (def label-font-size 24)
+(def hitbox-size 96)
 
 (def label-y 42)
 (def label-y-transform (str "translate(0," label-y ")"))
@@ -159,9 +160,7 @@
                 links
                 camera-pos
                 view-size
-                animation-subject
-                node-tap-subject
-                link-tap-subject]} state
+                animation-subject]} state
         {:keys [project-displacement
                 project-scale
                 project-opacity
@@ -184,10 +183,7 @@
           (.append "line")
           (.attr "class" "link")
           (.style "stroke" "#C9CBCB")
-          (.style "stroke-width" 3)
-          (.each
-            (fn [link]
-              (this-as elem (add-tap-listener elem #(.onNext link-tap-subject link))))))
+          (.style "stroke-width" 3))
       (-> link-selection
           maybe-transition
           (.attr "x1" #(-> % :source positions v/x))
@@ -202,10 +198,7 @@
       (-> new-node-selection (.append "circle")
           (.attr "class" "node-dot")
           (.style "fill" "#777A7A")
-          (.attr "r" max-radius)
-          (.each
-            (fn [node]
-              (this-as elem (add-tap-listener elem #(.onNext node-tap-subject node))))))
+          (.attr "r" max-radius))
       ; Having too many labels at once hurts performance. Add/remove labels as
       ; they move in and out of view.
       (-> node-selection
@@ -247,18 +240,15 @@
 
 ;; State management
 
-(defn initial-state [svg width height
-                     animation-subject node-tap-subject link-tap-subject]
+(defn initial-state [svg width height animation-subject]
   {:svg svg
    :view-size (v/create width height)
    :camera-pos (v/create 0 0)
    :nodes []
    :edges []
    :projection :fisheye ; Can be :fisheye or :zoom-out
-   ; subjects are part of state because they are needed to render the graph.
-   :animation-subject animation-subject
-   :node-tap-subject node-tap-subject
-   :link-tap-subject link-tap-subject})
+   ; Subject is part of state because it is needed to render the graph.
+   :animation-subject animation-subject})
 
 (defn swap-state! [current-state f & args]
   (apply swap! current-state f args)
@@ -561,16 +551,44 @@
          (zoom-in-to-pos! current-state
                           (zoom-out->world-pos @current-state %))))))
 
+(defn svg-element-position [svg elem]
+  (let [box (.getBoundingClientRect elem)
+        center-x (+ (.-left box) (/ (.-width box) 2))
+        center-y (+ (.-top box) (/ (.-height box) 2))
+        svg-box (-> svg .node .getBoundingClientRect)
+        svg-x (.-left svg-box)
+        svg-y (.-top svg-box)]
+    (v/create (- center-x svg-x) (- center-y svg-y))))
+
 ;; Gestures - tap on node
 
-(defn focus-node-on-tap! [current-state
-                          node-tap-observable
-                          animation-observable]
-  (-> node-tap-observable
-      (suppress-while-animating animation-observable)
-      (.subscribe (fn [node]
-                    (if (= (:projection @current-state) :fisheye)
-                      (zoom-in-to-pos! current-state (:pos node)))))))
+(defn closest-node
+  "Returns the node closest to the given position and its distance"
+  [state pos]
+  (let [closest-node (atom nil)
+        closest-distance-sq (atom js/Infinity)
+        svg (:svg state)]
+    (-> svg (.selectAll ".node-dot")
+        (.each
+          (fn [node]
+            (this-as elem
+                     (let [elem-pos (svg-element-position svg elem)
+                           distance-sq (v/distance-sq pos elem-pos)]
+                       (when (< distance-sq @closest-distance-sq)
+                         (reset! closest-distance-sq distance-sq)
+                         (reset! closest-node node)))))))
+    {:node @closest-node
+     :distance (js/Math.sqrt @closest-distance-sq)}))
+
+(defn focus-node-on-tap-2! [manager current-state animation-observable]
+  (let [taps (tap-observable manager)]
+    (-> taps
+        (suppress-while-animating animation-observable)
+        (.map #(closest-node @current-state %))
+        (.filter #(< (:distance %) (/ hitbox-size 2)))
+        (.subscribe (fn [{:keys [node]}]
+                      (if (= (:projection @current-state) :fisheye)
+                        (zoom-in-to-pos! current-state (:pos node))))))))
 
 ;; Exported function to do magic
 
@@ -581,14 +599,10 @@
         svg (setup-svg! selector)
         gesture-manager (hammer-manager svg)
         animation-subject (animation-subject)
-        node-tap-subject (js/Rx.Subject.)
-        link-tap-subject (js/Rx.Subject.)
         current-state (atom (initial-state svg
                                            width
                                            height
-                                           animation-subject
-                                           node-tap-subject
-                                           link-tap-subject))]
+                                           animation-subject))]
     (sync-on-container-size! current-state selector)
     (load-graph "miserables.json"
                 (fn [graph]
@@ -601,4 +615,4 @@
     (switch-zoom-on-spacebar! current-state animation-subject)
     (zoom-on-pinch! gesture-manager current-state animation-subject)
     (zoom-in-on-tap! gesture-manager current-state animation-subject)
-    (focus-node-on-tap! current-state node-tap-subject animation-subject)))
+    (focus-node-on-tap-2! gesture-manager current-state animation-subject)))
