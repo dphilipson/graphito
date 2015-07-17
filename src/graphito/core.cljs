@@ -668,8 +668,8 @@
 (defn show-details-on-button-click! [current-state modal-selector]
   (let [detail-button (:detail-button @current-state)]
     (.on detail-button "click"
-         #(detail/display-modal! modal-selector
-                                 (get-in @current-state [:selected-node :data])))))
+         #(detail/show-modal modal-selector
+                             (get-in @current-state [:selected-node :data])))))
 
 ;; Exported function to do magic
 
