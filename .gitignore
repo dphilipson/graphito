@@ -2,7 +2,6 @@ pom.xml
 *jar
 /classes/
 /out/
-/release/
 /target/
 .lein-deps-sum
 .lein-repl-history
