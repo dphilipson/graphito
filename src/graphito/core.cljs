@@ -25,6 +25,8 @@
 (def world-width 1280)
 (def world-height 800)
 
+(def graph-force-ticks 100)
+
 (def update-interval-ms 15)
 
 (def transition-duration-ms 500)
@@ -285,7 +287,7 @@
    :view-size (v/zero)
    :camera-pos (v/zero)
    :nodes []
-   :edges []
+   :links []
    :selected-node nil
    :projection :fisheye ; Can be :fisheye or :zoom-out
    ; Subject is part of state because it is needed to render the graph.
@@ -312,6 +314,11 @@
   (enforce-state-invariants! current-state)
   (sync-graph! @current-state :animate? true)
   (sync-detail-button! @current-state))
+
+(defn set-graph! [current-state {:keys [nodes links]}]
+  (swap-state! current-state assoc
+               :nodes nodes
+               :links links))
 
 (defn move-camera! [current-state d]
   (swap-state! current-state update :camera-pos v/add
@@ -346,7 +353,7 @@
       (.linkDistance 40)
       (.size (array world-width world-height))))
 
-(defn do-layout! [data]
+(defn do-layout! [data scale]
   (let [n (-> data .-nodes .-length)
         force-layout (get-force-layout)]
     ; Initialize the positions deterministically, for better results
@@ -359,21 +366,18 @@
         (.nodes (.-nodes data))
         (.links (.-links data))
         .start)
-    (dotimes [_ n]
+    (dotimes [_ graph-force-ticks]
       (.tick force-layout))
     (.stop force-layout)
     ; Center the nodes in the middle
     (let [sum-x (->> data .-nodes js->clj (map #(% "x")) (apply +))
           sum-y (->> data .-nodes js->clj (map #(% "y")) (apply +))
           avg-x (/ sum-x n)
-          avg-y (/ sum-y n)
-          ; Nodes are too close together, but the graph has good shape.
-          ; Expand everything.
-          scale-hack 8] 
+          avg-y (/ sum-y n)]
       (-> data .-nodes
           (.forEach (fn [d]
-                      (aset d "x" (* scale-hack (- (.-x d) avg-x)))
-                      (aset d "y" (* scale-hack (- (.-y d) avg-y)))))))
+                      (aset d "x" (* scale (- (.-x d) avg-x)))
+                      (aset d "y" (* scale (- (.-y d) avg-y)))))))
     data))
 
 ;; JSON loading and parsing
@@ -388,14 +392,18 @@
   [source target]
   {:source source :target target})
 
-(defn parse-js-graph [js-graph]
+(defn parse-js-graph [js-graph scale]
   ;; Running do-layout! modifies the link data to contain full nodes
   ;;  rather than indices. Hence this ugly ordering.
   (let [data-links (js->clj (aget js-graph "links"))
         links (->> data-links
-                   ;(filter #(>= (% "value") 4))
+                   ; Hack for "miserables.json" dataset, which has too many
+                   ; links so we remove the less important ones.
+                   (filter (fn [link]
+                             (or (nil? (link "value"))
+                                 (>= (link "value") 4))))
                    (mapv (fn [l] (link (l "source") (l "target")))))]
-    (do-layout! js-graph)
+    (do-layout! js-graph scale)
     (let [data-nodes (js->clj (aget js-graph "nodes"))
           nodes (vec (map-indexed (fn [i data-node]
                                     (node i
@@ -404,10 +412,10 @@
                                           (data-node "y"))) data-nodes))]
       {:nodes nodes :links links})))
 
-(defn load-graph [json-file callback]
+(defn load-graph [json-file scale callback]
   (.json d3 json-file
          (fn [js-graph]
-           (callback (parse-js-graph js-graph)))))
+           (callback (parse-js-graph js-graph scale)))))
 
 ;; Reactive
 
@@ -660,7 +668,9 @@
                         detail-button-selector
                         opts]
   (let [{graph-file "graphFile"
-         gilbert-graph "gilbertGraph"} (js->clj opts)
+         gilbert-graph "gilbertGraph"
+         scale "scale"
+         :or {scale 1}} (js->clj opts)
         svg (setup-svg! container-selector)
         detail-button (.select d3 detail-button-selector)
         gesture-manager (hammer-manager svg)
@@ -673,15 +683,11 @@
     (cond
       gilbert-graph
       (let [[num-nodes p] gilbert-graph
-            js-graph (clj->js (gen/gilbert-graph num-nodes p))
-            {:keys [nodes links]} (parse-js-graph js-graph)]
-        (swap-state! current-state assoc :nodes nodes :links links))
+            js-graph (clj->js (gen/gilbert-graph num-nodes p))]
+        (set-graph! current-state (parse-js-graph js-graph scale)))
 
       graph-file
-      (load-graph graph-file
-                  (fn [graph]
-                    (let [{:keys [nodes links]} graph]
-                      (swap-state! current-state assoc :nodes nodes :links links)))))
+      (load-graph graph-file scale (partial set-graph! current-state)))
     (respond-to-resize! current-state)
     (move-camera-on-arrow-keys! current-state animation-subject)
     (move-camera-on-pan! gesture-manager current-state animation-subject)

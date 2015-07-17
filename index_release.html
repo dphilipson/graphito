@@ -35,7 +35,6 @@
       </div>
     </div> 
 
-
     <script src="lib/jquery-1.11.3.min.js" type="text/javascript"></script>
     <script src="lib/bootstrap-3.3.5-dist/js/bootstrap.min.js" type="text/javascript"></script>
     <script src="lib/d3.min.js" type="text/javascript"></script>
@@ -43,7 +42,10 @@
     <script src="lib/hammer.min.js" type="text/javascript"></script>
     <script src="release/graphito.js" type="text/javascript"></script>
     <script type="text/javascript">
-      graphito.core.inhabit('#container', '#node-detail-button', {gilbertGraph: [50, 0.01]});
+      graphito.core.inhabit('#container', '#node-detail-button', {gilbertGraph: [25, 0.08],
+                                                                  scale: 4});
+//      graphito.core.inhabit('#container', '#node-detail-button', {graphFile: "miserables.json",
+//                                                                  scale: 8});
     </script>
   </body>
 </html>
