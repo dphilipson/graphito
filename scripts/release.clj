@@ -9,6 +9,8 @@
      :optimizations :advanced
      :externs ["externs/d3_externs_min.js"
                "externs/rx.all.min.js"
-               "externs/hammer.min.js"]
+               "externs/hammer.min.js"
+               "externs/jquery-1.9.js"
+               "externs/bootstrap-modal.js"]
      :verbose true})
   (println "... done. Elapsed" (/ (- (System/nanoTime) start) 1e9) "seconds"))

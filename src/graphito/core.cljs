@@ -1,7 +1,8 @@
 (ns graphito.core
   (:require [clojure.browser.repl :as repl]
             [graphito.vector :as v]
-            [graphito.generate :as gen]))
+            [graphito.generate :as gen]
+            [graphito.detail :as detail]))
 
 ;; (defonce conn
 ;;   (repl/connect "http://localhost:9000/repl"))
@@ -662,10 +663,19 @@
                    (zoom-in-to-pos! current-state
                                     (zoom-out->world-pos @current-state %))))))
 
+;; Detail button
+
+(defn show-details-on-button-click! [current-state modal-selector]
+  (let [detail-button (:detail-button @current-state)]
+    (.on detail-button "click"
+         #(detail/display-modal! modal-selector
+                                 (get-in @current-state [:selected-node :data])))))
+
 ;; Exported function to do magic
 
 (defn ^:export inhabit [container-selector
                         detail-button-selector
+                        modal-selector
                         opts]
   (let [{graph-file "graphFile"
          gilbert-graph "gilbertGraph"
@@ -694,4 +704,5 @@
     (move-camera-on-swipe! gesture-manager current-state animation-subject)
     (switch-zoom-on-spacebar! current-state animation-subject)
     (zoom-on-pinch! gesture-manager current-state animation-subject)
-    (zoom-and-select-on-tap! gesture-manager current-state animation-subject)))
+    (zoom-and-select-on-tap! gesture-manager current-state animation-subject)
+    (show-details-on-button-click! current-state modal-selector)))
