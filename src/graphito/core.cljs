@@ -36,6 +36,8 @@
 (def displacement-factor 1)
 
 (def max-radius 32)
+(def link-width 3)
+(def selected-link-width 5)
 (def label-font "Verdana")
 (def label-font-size 24)
 (def hitbox-size 96)
@@ -44,6 +46,7 @@
 
 (def background-color "#EDF0F2")
 (def link-color "#C9CBCB")
+(def selected-link-color "#a7b6c2")
 (def node-color "#777A7A")
 (def node-label-color node-color)
 (def selected-node-color "#FE9F51")
@@ -207,6 +210,13 @@
           (.style "stroke" link-color)
           (.style "stroke-width" 3))
       (-> link-selection
+          (.style "stroke" link-color)
+          (.style "stroke-width" link-width)
+          (.filter (fn [link] (or (= (:source link) (:index selected-node))
+                                  (= (:target link) (:index selected-node)))))
+          (.style "stroke" selected-link-color)
+          (.style "stroke-width" selected-link-width))
+      (-> link-selection
           maybe-transition
           (.attr "x1" #(-> % :source positions v/x))
           (.attr "y1" #(-> % :source positions v/y))
@@ -243,7 +253,7 @@
           (.remove))
       (-> node-selection
           (.style "fill"
-                  #(if (= % selected-node) selected-node-color node-color))
+                  #(if (identical? % selected-node) selected-node-color node-color))
           maybe-transition
           (.attr "transform"
                  (fn [node]
@@ -257,7 +267,7 @@
           (.attr "opacity" (fn [node]
                              (project-label-opacity (distance-for-node node))))
           (.attr "font-weight" (fn [node]
-                                 (if (= node selected-node) "bold" "normal")))
+                                 (if (identical? node selected-node) "bold" "normal")))
           (.text #(:title %))))
     (.classed detail-button "invisible" (or (nil? selected-node)
                                             (= projection :zoom-out)))
@@ -285,7 +295,7 @@
 (defn deselect-node-if-away! [current-state]
   (when-let [selected-node (:selected-node @current-state)]
     (when (and (> (scaled-distance-from-camera @current-state (:pos selected-node))
-                   deselection-distance)
+                  deselection-distance)
                (= (:projection @current-state) :fisheye))
       (swap! current-state assoc :selected-node nil))))
 
@@ -627,18 +637,18 @@
 (defn zoom-and-select-on-tap! [manager current-state animation-observable]
   (let [taps (tap-observable manager)
         partitions (-> taps
-            (suppress-while-animating animation-observable)
-            (.map #(closest-node @current-state %))
-            (.partition #(< (:distance %) (/ hitbox-size 2))))
+                       (suppress-while-animating animation-observable)
+                       (.map #(closest-node @current-state %))
+                       (.partition #(< (:distance %) (/ hitbox-size 2))))
         node-taps (aget partitions 0)
         space-taps (.map (aget partitions 1) #(:pos %))]
-        (.subscribe node-taps
-                    (fn [{:keys [node]}]
-                        (select-and-zoom-to-node! current-state node)))
-        (.subscribe space-taps
-                    #(if (= (:projection @current-state) :zoom-out)
-                       (zoom-in-to-pos! current-state
-                                        (zoom-out->world-pos @current-state %))))))
+    (.subscribe node-taps
+                (fn [{:keys [node]}]
+                  (select-and-zoom-to-node! current-state node)))
+    (.subscribe space-taps
+                #(if (= (:projection @current-state) :zoom-out)
+                   (zoom-in-to-pos! current-state
+                                    (zoom-out->world-pos @current-state %))))))
 
 ;; Exported function to do magic
 
