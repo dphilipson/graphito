@@ -256,6 +256,8 @@
           maybe-transition
           (.attr "opacity" (fn [node]
                              (project-label-opacity (distance-for-node node))))
+          (.attr "font-weight" (fn [node]
+                                 (if (= node selected-node) "bold" "normal")))
           (.text #(:title %))))
     (.classed detail-button "invisible" (or (nil? selected-node)
                                             (= projection :zoom-out)))
@@ -604,10 +606,7 @@
         svg-y (.-top svg-box)]
     (v/create (- center-x svg-x) (- center-y svg-y))))
 
-;; Gestures - tap on node
-
 (defn closest-node
-  "Returns the node closest to the given position and its distance"
   [state pos]
   (let [closest-node (atom nil)
         closest-distance-sq (atom js/Infinity)
@@ -621,7 +620,8 @@
                        (when (< distance-sq @closest-distance-sq)
                          (reset! closest-distance-sq distance-sq)
                          (reset! closest-node node)))))))
-    {:node @closest-node
+    {:pos pos
+     :node @closest-node
      :distance (js/Math.sqrt @closest-distance-sq)}))
 
 (defn zoom-and-select-on-tap! [manager current-state animation-observable]
@@ -631,7 +631,7 @@
             (.map #(closest-node @current-state %))
             (.partition #(< (:distance %) (/ hitbox-size 2))))
         node-taps (aget partitions 0)
-        space-taps (aget partitions 1)]
+        space-taps (.map (aget partitions 1) #(:pos %))]
         (.subscribe node-taps
                     (fn [{:keys [node]}]
                         (select-and-zoom-to-node! current-state node)))
