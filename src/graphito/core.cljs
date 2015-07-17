@@ -383,9 +383,10 @@
 
 ;; JSON loading and parsing
 
-(defn node [index title x y]
+(defn node [index title data x y]
   {:index index
    :title title
+   :data data
    :pos (v/create x y)})
 
 (defn link
@@ -405,12 +406,13 @@
                                  (>= (link "value") 4))))
                    (mapv (fn [l] (link (l "source") (l "target")))))]
     (do-layout! js-graph scale)
-    (let [data-nodes (js->clj (aget js-graph "nodes"))
+    (let [data-nodes (js->clj (aget js-graph "nodes") :keywordize-keys true)
           nodes (vec (map-indexed (fn [i data-node]
                                     (node i
-                                          (data-node "name")
-                                          (data-node "x")
-                                          (data-node "y"))) data-nodes))]
+                                          (:name data-node)
+                                          (:data data-node)
+                                          (:x data-node)
+                                          (:y data-node))) data-nodes))]
       {:nodes nodes :links links})))
 
 (defn load-graph [json-file scale callback]
@@ -679,6 +681,7 @@
                         opts]
   (let [{graph-file "graphFile"
          gilbert-graph "gilbertGraph"
+         graph-json "graphJson"
          scale "scale"
          :or {scale 1}} (js->clj opts)
         svg (setup-svg! container-selector)
@@ -697,7 +700,11 @@
         (set-graph! current-state (parse-js-graph js-graph scale)))
 
       graph-file
-      (load-graph graph-file scale (partial set-graph! current-state)))
+      (load-graph graph-file scale (partial set-graph! current-state))
+      
+      graph-json
+      (let [js-graph (js/JSON.parse graph-json)]
+        (set-graph! current-state (parse-js-graph js-graph scale))))
     (respond-to-resize! current-state)
     (move-camera-on-arrow-keys! current-state animation-subject)
     (move-camera-on-pan! gesture-manager current-state animation-subject)
