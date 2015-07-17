@@ -1,6 +1,7 @@
 (ns graphito.core
   (:require [clojure.browser.repl :as repl]
-            [graphito.vector :as v]))
+            [graphito.vector :as v]
+            [graphito.generate :as gen]))
 
 ;; (defonce conn
 ;;   (repl/connect "http://localhost:9000/repl"))
@@ -387,23 +388,26 @@
   [source target]
   {:source source :target target})
 
+(defn parse-js-graph [js-graph]
+  ;; Running do-layout! modifies the link data to contain full nodes
+  ;;  rather than indices. Hence this ugly ordering.
+  (let [data-links (js->clj (aget js-graph "links"))
+        links (->> data-links
+                   ;(filter #(>= (% "value") 4))
+                   (mapv (fn [l] (link (l "source") (l "target")))))]
+    (do-layout! js-graph)
+    (let [data-nodes (js->clj (aget js-graph "nodes"))
+          nodes (vec (map-indexed (fn [i data-node]
+                                    (node i
+                                          (data-node "name")
+                                          (data-node "x")
+                                          (data-node "y"))) data-nodes))]
+      {:nodes nodes :links links})))
+
 (defn load-graph [json-file callback]
   (.json d3 json-file
-         (fn [raw-data]
-           ;; Running do-layout! modifies the link data to contain full nodes
-           ;;  rather than indices. Hence this ugly ordering.
-           (let [data-links (js->clj (aget raw-data "links"))
-                 links (->> data-links
-                            (filter #(>= (% "value") 4))
-                            (mapv (fn [l] (link (l "source") (l "target")))))]
-             (do-layout! raw-data)
-             (let [data-nodes (js->clj (aget raw-data "nodes"))
-                   nodes (vec (map-indexed (fn [i data-node]
-                                             (node i
-                                                   (data-node "name")
-                                                   (data-node "x")
-                                                   (data-node "y"))) data-nodes))]
-               (callback {:nodes nodes :links links}))))))
+         (fn [js-graph]
+           (callback (parse-js-graph js-graph)))))
 
 ;; Reactive
 
@@ -652,8 +656,12 @@
 
 ;; Exported function to do magic
 
-(defn ^:export inhabit [container-selector detail-button-selector]
-  (let [svg (setup-svg! container-selector)
+(defn ^:export inhabit [container-selector
+                        detail-button-selector
+                        opts]
+  (let [{graph-file "graphFile"
+         gilbert-graph "gilbertGraph"} (js->clj opts)
+        svg (setup-svg! container-selector)
         detail-button (.select d3 detail-button-selector)
         gesture-manager (hammer-manager svg)
         animation-subject (animation-subject)
@@ -662,10 +670,18 @@
                                            animation-subject))]
     (prevent-focus-on-detail-button! detail-button)
     (sync-on-window-size! current-state)
-    (load-graph "miserables.json"
-                (fn [graph]
-                  (let [{:keys [nodes links]} graph]
-                    (swap-state! current-state assoc :nodes nodes :links links))))
+    (cond
+      gilbert-graph
+      (let [[num-nodes p] gilbert-graph
+            js-graph (clj->js (gen/gilbert-graph num-nodes p))
+            {:keys [nodes links]} (parse-js-graph js-graph)]
+        (swap-state! current-state assoc :nodes nodes :links links))
+
+      graph-file
+      (load-graph graph-file
+                  (fn [graph]
+                    (let [{:keys [nodes links]} graph]
+                      (swap-state! current-state assoc :nodes nodes :links links)))))
     (respond-to-resize! current-state)
     (move-camera-on-arrow-keys! current-state animation-subject)
     (move-camera-on-pan! gesture-manager current-state animation-subject)
