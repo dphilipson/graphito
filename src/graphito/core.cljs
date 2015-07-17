@@ -79,16 +79,8 @@
     (add-background! svg)
     svg))
 
-(defn center-detail-button! [detail-button]
-  (let [width (-> detail-button .node .-offsetWidth)]
-    (.style detail-button "margin-left" (str (/ width -2) "px"))))
-
 (defn prevent-focus-on-detail-button! [detail-button]
   (.on detail-button "mouseup" #(-> detail-button .node .blur)))
-
-(defn setup-detail-button! [detail-button]
-  (center-detail-button! detail-button)
-  (prevent-focus-on-detail-button! detail-button))
 
 ;; Geometry
 
@@ -169,12 +161,20 @@
 (defn projectors-for-state [state]
   (if (= (:projection state) :fisheye) fisheye-projectors zoom-out-projectors))
 
-;; D3 magic
+;; Button syncing
 
-(defn add-tap-listener [elem callback]
-  (let [manager (js/Hammer.Manager. elem)]
-    (.add manager (js/Hammer.Tap.))
-    (.on manager "tap" callback)))
+(defn center-detail-button! [detail-button]
+  (let [width (-> detail-button .node .-offsetWidth)]
+    (.style detail-button "margin-left" (str (/ width -2) "px"))))
+
+(defn sync-detail-button! [state]
+  (let [{:keys [detail-button selected-node]} state]
+    (.classed detail-button "hidden" (nil? selected-node))
+    (when-not (nil? selected-node)
+      (.text detail-button (str "View \"" (:title selected-node) "\""))
+      (center-detail-button! detail-button))))
+
+;; D3 magic
 
 (defn sync-graph! [state & {:keys [animate?]}]
   (let [{:keys [svg
@@ -269,8 +269,6 @@
           (.attr "font-weight" (fn [node]
                                  (if (identical? node selected-node) "bold" "normal")))
           (.text #(:title %))))
-    (.classed detail-button "invisible" (or (nil? selected-node)
-                                            (= projection :zoom-out)))
     (when animate?
       (.onNext animation-subject :animation-start)
       (js/setTimeout
@@ -305,12 +303,14 @@
 (defn swap-state! [current-state f & args]
   (apply swap! current-state f args)
   (enforce-state-invariants! current-state)
-  (sync-graph! @current-state))
+  (sync-graph! @current-state)
+  (sync-detail-button! @current-state))
 
 (defn swap-state-animated! [current-state f & args]
   (apply swap! current-state f args)
   (enforce-state-invariants! current-state)
-  (sync-graph! @current-state :animate? true))
+  (sync-graph! @current-state :animate? true)
+  (sync-detail-button! @current-state))
 
 (defn move-camera! [current-state d]
   (swap-state! current-state update :camera-pos v/add
@@ -660,7 +660,7 @@
         current-state (atom (initial-state svg
                                            detail-button
                                            animation-subject))]
-    (setup-detail-button! detail-button)
+    (prevent-focus-on-detail-button! detail-button)
     (sync-on-window-size! current-state)
     (load-graph "miserables.json"
                 (fn [graph]
