@@ -595,16 +595,6 @@
   (.map (gesture-observable manager "tap")
         (fn [e] (v/create (-> e .-center .-x) (-> e .-center .-y)))))
 
-(defn zoom-in-on-tap! [manager
-                       current-state
-                       animation-observable]
-  (let [taps (tap-observable manager)]
-    (.subscribe
-      taps
-      #(if (= (:projection @current-state) :zoom-out)
-         (zoom-in-to-pos! current-state
-                          (zoom-out->world-pos @current-state %))))))
-
 (defn svg-element-position [svg elem]
   (let [box (.getBoundingClientRect elem)
         center-x (+ (.-left box) (/ (.-width box) 2))
@@ -634,15 +624,21 @@
     {:node @closest-node
      :distance (js/Math.sqrt @closest-distance-sq)}))
 
-(defn select-node-on-tap! [manager current-state animation-observable]
-  (let [taps (tap-observable manager)]
-    (-> taps
-        (suppress-while-animating animation-observable)
-        (.map #(closest-node @current-state %))
-        (.filter #(< (:distance %) (/ hitbox-size 2)))
-        (.subscribe (fn [{:keys [node]}]
-                      (if (= (:projection @current-state) :fisheye)
-                        (select-and-zoom-to-node! current-state node)))))))
+(defn zoom-and-select-on-tap! [manager current-state animation-observable]
+  (let [taps (tap-observable manager)
+        partitions (-> taps
+            (suppress-while-animating animation-observable)
+            (.map #(closest-node @current-state %))
+            (.partition #(< (:distance %) (/ hitbox-size 2))))
+        node-taps (aget partitions 0)
+        space-taps (aget partitions 1)]
+        (.subscribe node-taps
+                    (fn [{:keys [node]}]
+                        (select-and-zoom-to-node! current-state node)))
+        (.subscribe space-taps
+                    #(if (= (:projection @current-state) :zoom-out)
+                       (zoom-in-to-pos! current-state
+                                        (zoom-out->world-pos @current-state %))))))
 
 ;; Exported function to do magic
 
@@ -666,5 +662,4 @@
     (move-camera-on-swipe! gesture-manager current-state animation-subject)
     (switch-zoom-on-spacebar! current-state animation-subject)
     (zoom-on-pinch! gesture-manager current-state animation-subject)
-    (zoom-in-on-tap! gesture-manager current-state animation-subject)
-    (select-node-on-tap! gesture-manager current-state animation-subject)))
+    (zoom-and-select-on-tap! gesture-manager current-state animation-subject)))
