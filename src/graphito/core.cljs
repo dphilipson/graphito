@@ -264,6 +264,19 @@
       (js/setTimeout
         #(.onNext animation-subject :animation-end) transition-duration-ms))))
 
+(defn refresh-graph-on-animation-frames! [current-state]
+  (let [last-state (atom nil?)]
+    ((fn f []
+       (.requestAnimationFrame
+         js/window
+         (fn []
+           (when-not (identical? @current-state @last-state)
+             (let [animation-requested? (:animation-requested? @current-state)]
+               (swap! current-state assoc :animation-requested? false)
+               (reset! last-state @current-state)
+               (sync-graph! @current-state :animate? animation-requested?)))
+           (f)))))))
+
 ;; State management
 
 (defn initial-state [svg
@@ -278,7 +291,8 @@
    :selected-node nil
    :projection :fisheye ; Can be :fisheye or :zoom-out
    ; Subject is part of state because it is needed to render the graph.
-   :animation-subject animation-subject})
+   :animation-subject animation-subject
+   :animation-requested? false})
 
 (defn deselect-node-if-away! [current-state]
   (when-let [selected-node (:selected-node @current-state)]
@@ -292,18 +306,17 @@
 
 (defn swap-state! [current-state f & args]
   (apply swap! current-state f args)
-  (enforce-state-invariants! current-state)
-  (sync-graph! @current-state))
+  (enforce-state-invariants! current-state))
 
 (defn swap-state-animated! [current-state f & args]
-  (apply swap! current-state f args)
-  (enforce-state-invariants! current-state)
-  (sync-graph! @current-state :animate? true))
+  (apply swap-state! current-state f args)
+  (swap! current-state assoc :animation-requested? true))
 
 (defn move-camera! [current-state d]
-  (swap-state! current-state update :camera-pos v/add
-               (-> d v/copy (v/multiply
-                              (/ (scroll-scale-for-state @current-state))))))
+  (swap-state! current-state update :camera-pos
+               #(-> % v/copy (v/add
+                    (-> d v/copy (v/multiply
+                                   (/ (scroll-scale-for-state @current-state))))))))
 
 (defn set-projection! [current-state projection]
   (swap-state-animated! current-state assoc :projection projection))
@@ -656,6 +669,7 @@
                                            animation-subject))]
     (setup-detail-button! detail-button)
     (sync-on-window-size! current-state)
+    (refresh-graph-on-animation-frames! current-state)
     (load-graph "miserables.json"
                 (fn [graph]
                   (let [{:keys [nodes links]} graph]
