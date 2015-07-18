@@ -22,7 +22,8 @@
         (.classed "property-type" true))
     (-> new-property-selection (.append "div")
         (.classed (js-obj "property-value" true
-                          "col-xs-8" true)))
+                          "col-xs-7" true
+                          "col-xs-offset-1" true)))
     (-> property-selection (.selectAll ".property-type")
         (.text #(:displayType %)))
     (-> property-selection (.selectAll ".property-value")

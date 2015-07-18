@@ -681,7 +681,7 @@
                         opts]
   (let [{graph-file "graphFile"
          gilbert-graph "gilbertGraph"
-         graph-json "graphJson"
+         graph-object "graphObject"
          scale "scale"
          :or {scale 1}} (js->clj opts)
         svg (setup-svg! container-selector)
@@ -702,9 +702,8 @@
       graph-file
       (load-graph graph-file scale (partial set-graph! current-state))
       
-      graph-json
-      (let [js-graph (js/JSON.parse graph-json)]
-        (set-graph! current-state (parse-js-graph js-graph scale))))
+      graph-object
+      (set-graph! current-state (parse-js-graph (clj->js graph-object) scale)))
     (respond-to-resize! current-state)
     (move-camera-on-arrow-keys! current-state animation-subject)
     (move-camera-on-pan! gesture-manager current-state animation-subject)
