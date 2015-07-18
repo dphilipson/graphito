@@ -12,43 +12,43 @@ return new cljs.core.PersistentArrayMap(null, 1, [cljs.core.constant$keyword$nam
 graphito.generate.gilbert_graph = (function graphito$generate$gilbert_graph(num_nodes,p){
 var nodes = cljs.core.vec(cljs.core.take.cljs$core$IFn$_invoke$arity$2(num_nodes,cljs.core.map.cljs$core$IFn$_invoke$arity$2(graphito.generate.node,cljs.core.cycle(graphito.generate.names))));
 var links = cljs.core.vec((function (){var iter__4227__auto__ = ((function (nodes){
-return (function graphito$generate$gilbert_graph_$_iter__4501(s__4502){
+return (function graphito$generate$gilbert_graph_$_iter__4526(s__4527){
 return (new cljs.core.LazySeq(null,((function (nodes){
 return (function (){
-var s__4502__$1 = s__4502;
+var s__4527__$1 = s__4527;
 while(true){
-var temp__4425__auto__ = cljs.core.seq(s__4502__$1);
+var temp__4425__auto__ = cljs.core.seq(s__4527__$1);
 if(temp__4425__auto__){
 var xs__4977__auto__ = temp__4425__auto__;
 var source = cljs.core.first(xs__4977__auto__);
-var iterys__4223__auto__ = ((function (s__4502__$1,source,xs__4977__auto__,temp__4425__auto__,nodes){
-return (function graphito$generate$gilbert_graph_$_iter__4501_$_iter__4503(s__4504){
-return (new cljs.core.LazySeq(null,((function (s__4502__$1,source,xs__4977__auto__,temp__4425__auto__,nodes){
+var iterys__4223__auto__ = ((function (s__4527__$1,source,xs__4977__auto__,temp__4425__auto__,nodes){
+return (function graphito$generate$gilbert_graph_$_iter__4526_$_iter__4528(s__4529){
+return (new cljs.core.LazySeq(null,((function (s__4527__$1,source,xs__4977__auto__,temp__4425__auto__,nodes){
 return (function (){
-var s__4504__$1 = s__4504;
+var s__4529__$1 = s__4529;
 while(true){
-var temp__4425__auto____$1 = cljs.core.seq(s__4504__$1);
+var temp__4425__auto____$1 = cljs.core.seq(s__4529__$1);
 if(temp__4425__auto____$1){
-var s__4504__$2 = temp__4425__auto____$1;
-if(cljs.core.chunked_seq_QMARK_(s__4504__$2)){
-var c__4225__auto__ = cljs.core.chunk_first(s__4504__$2);
+var s__4529__$2 = temp__4425__auto____$1;
+if(cljs.core.chunked_seq_QMARK_(s__4529__$2)){
+var c__4225__auto__ = cljs.core.chunk_first(s__4529__$2);
 var size__4226__auto__ = cljs.core.count(c__4225__auto__);
-var b__4506 = cljs.core.chunk_buffer(size__4226__auto__);
-if((function (){var i__4505 = (0);
+var b__4531 = cljs.core.chunk_buffer(size__4226__auto__);
+if((function (){var i__4530 = (0);
 while(true){
-if((i__4505 < size__4226__auto__)){
-var target = cljs.core._nth.cljs$core$IFn$_invoke$arity$2(c__4225__auto__,i__4505);
-if(((function (){var G__4518 = cljs.core.mod(((num_nodes * source) + target),cljs.core.count(graphito.generate.rands));
-return (graphito.generate.rands.cljs$core$IFn$_invoke$arity$1 ? graphito.generate.rands.cljs$core$IFn$_invoke$arity$1(G__4518) : graphito.generate.rands.call(null,G__4518));
+if((i__4530 < size__4226__auto__)){
+var target = cljs.core._nth.cljs$core$IFn$_invoke$arity$2(c__4225__auto__,i__4530);
+if(((function (){var G__4543 = cljs.core.mod(((num_nodes * source) + target),cljs.core.count(graphito.generate.rands));
+return (graphito.generate.rands.cljs$core$IFn$_invoke$arity$1 ? graphito.generate.rands.cljs$core$IFn$_invoke$arity$1(G__4543) : graphito.generate.rands.call(null,G__4543));
 })() < p)){
-cljs.core.chunk_append(b__4506,graphito.generate.edge(source,target));
+cljs.core.chunk_append(b__4531,graphito.generate.edge(source,target));
 
-var G__4520 = (i__4505 + (1));
-i__4505 = G__4520;
+var G__4545 = (i__4530 + (1));
+i__4530 = G__4545;
 continue;
 } else {
-var G__4521 = (i__4505 + (1));
-i__4505 = G__4521;
+var G__4546 = (i__4530 + (1));
+i__4530 = G__4546;
 continue;
 }
 } else {
@@ -57,19 +57,19 @@ return true;
 break;
 }
 })()){
-return cljs.core.chunk_cons(cljs.core.chunk(b__4506),graphito$generate$gilbert_graph_$_iter__4501_$_iter__4503(cljs.core.chunk_rest(s__4504__$2)));
+return cljs.core.chunk_cons(cljs.core.chunk(b__4531),graphito$generate$gilbert_graph_$_iter__4526_$_iter__4528(cljs.core.chunk_rest(s__4529__$2)));
 } else {
-return cljs.core.chunk_cons(cljs.core.chunk(b__4506),null);
+return cljs.core.chunk_cons(cljs.core.chunk(b__4531),null);
 }
 } else {
-var target = cljs.core.first(s__4504__$2);
-if(((function (){var G__4519 = cljs.core.mod(((num_nodes * source) + target),cljs.core.count(graphito.generate.rands));
-return (graphito.generate.rands.cljs$core$IFn$_invoke$arity$1 ? graphito.generate.rands.cljs$core$IFn$_invoke$arity$1(G__4519) : graphito.generate.rands.call(null,G__4519));
+var target = cljs.core.first(s__4529__$2);
+if(((function (){var G__4544 = cljs.core.mod(((num_nodes * source) + target),cljs.core.count(graphito.generate.rands));
+return (graphito.generate.rands.cljs$core$IFn$_invoke$arity$1 ? graphito.generate.rands.cljs$core$IFn$_invoke$arity$1(G__4544) : graphito.generate.rands.call(null,G__4544));
 })() < p)){
-return cljs.core.cons(graphito.generate.edge(source,target),graphito$generate$gilbert_graph_$_iter__4501_$_iter__4503(cljs.core.rest(s__4504__$2)));
+return cljs.core.cons(graphito.generate.edge(source,target),graphito$generate$gilbert_graph_$_iter__4526_$_iter__4528(cljs.core.rest(s__4529__$2)));
 } else {
-var G__4522 = cljs.core.rest(s__4504__$2);
-s__4504__$1 = G__4522;
+var G__4547 = cljs.core.rest(s__4529__$2);
+s__4529__$1 = G__4547;
 continue;
 }
 }
@@ -78,16 +78,16 @@ return null;
 }
 break;
 }
-});})(s__4502__$1,source,xs__4977__auto__,temp__4425__auto__,nodes))
+});})(s__4527__$1,source,xs__4977__auto__,temp__4425__auto__,nodes))
 ,null,null));
-});})(s__4502__$1,source,xs__4977__auto__,temp__4425__auto__,nodes))
+});})(s__4527__$1,source,xs__4977__auto__,temp__4425__auto__,nodes))
 ;
 var fs__4224__auto__ = cljs.core.seq(iterys__4223__auto__(cljs.core.range.cljs$core$IFn$_invoke$arity$2((source + (1)),num_nodes)));
 if(fs__4224__auto__){
-return cljs.core.concat.cljs$core$IFn$_invoke$arity$2(fs__4224__auto__,graphito$generate$gilbert_graph_$_iter__4501(cljs.core.rest(s__4502__$1)));
+return cljs.core.concat.cljs$core$IFn$_invoke$arity$2(fs__4224__auto__,graphito$generate$gilbert_graph_$_iter__4526(cljs.core.rest(s__4527__$1)));
 } else {
-var G__4523 = cljs.core.rest(s__4502__$1);
-s__4502__$1 = G__4523;
+var G__4548 = cljs.core.rest(s__4527__$1);
+s__4527__$1 = G__4548;
 continue;
 }
 } else {
