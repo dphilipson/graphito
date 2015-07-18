@@ -25,6 +25,9 @@
             <h4 class="modal-title" id="myModalLabel">Modal title</h4>
           </div>
           <div class="modal-body">
+            <div class="center-children">
+              <img class="mugshot">
+            </div>
             <div class="container-fluid properties"></div>
           </div>
           <div class="modal-footer">
@@ -45,8 +48,8 @@
         graphito.core.inhabit('#container', '#node-detail-button', '#myModal', opts);
       }
 
-      var GILBERT = {gilbertGraph: [25, 0.08], scale: 4};
-      var MISERABLES = {graphFile: "miserables.json", scale: 8};
+      var GILBERT = {gilbertGraph: [25, 0.08]};
+      var MISERABLES = {graphFile: "miserables.json"};
 
       displayGraph(GILBERT);
     </script>
