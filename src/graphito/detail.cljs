@@ -4,9 +4,10 @@
 (def d3 js/d3)
 
 (defn ^:export show-modal [selector data]
-  (let [{:keys [title properties]} data
+  (let [{:keys [title properties mugshot]} data
         modal (.select d3 selector)
         title-field (.select modal ".modal-title")
+        mugshot-field (.select modal ".mugshot")
         property-container (.select modal ".properties")
         property-selection (-> property-container
                                (.selectAll ".property")
@@ -16,6 +17,9 @@
                                    (.classed (js-obj "property" true
                                                      "row" true)))]
     (.text title-field title)
+    (-> mugshot-field
+        (.classed "hidden" (nil? mugshot))
+        (.attr "src" (if mugshot (str "data:image/png;base64, " mugshot) nil)))
     (-> new-property-selection (.append "div")
         (.classed "col-xs-4" true)
         (.append "strong")

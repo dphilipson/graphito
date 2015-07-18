@@ -10,6 +10,14 @@
   bottom: 60px;
 }
 
+.center-children {
+  text-align: center;
+}
+
+.mugshot {
+  padding-bottom: 15px;
+}
+
 .property {
   margin-bottom: 10px;
 }
