@@ -28,9 +28,9 @@
         (.classed (js-obj "property-value" true
                           "col-xs-7" true
                           "col-xs-offset-1" true)))
-    (-> property-selection (.selectAll ".property-type")
+    (-> property-selection (.select ".property-type")
         (.text #(:displayType %)))
-    (-> property-selection (.selectAll ".property-value")
+    (-> property-selection (.select ".property-value")
         (.text #(:displayValue %)))
     (-> property-selection .exit .remove))
   (.modal ($ selector)))
