@@ -3,7 +3,8 @@
             [graphito.vector :as v]
             [graphito.layout :as layout]
             [graphito.generate :as gen]
-            [graphito.detail :as detail]))
+            [graphito.detail :as detail]
+            [graphito.filler :as filler]))
 
 ;; (defonce conn
 ;;   (repl/connect "http://localhost:9000/repl"))
@@ -637,8 +638,9 @@
 (defn show-details-on-button-click! [current-state modal-selector]
   (let [detail-button (:detail-button @current-state)]
     (.on detail-button "click"
-         #(detail/show-modal modal-selector
-                             (get-in @current-state [:selected-node :data])))))
+         #(let [{{:keys [title data]} :selected-node} @current-state
+                display-data (or data (filler/data-for-title title))]
+            (detail/show-modal modal-selector display-data)))))
 
 ;; Exported function to do magic
 
