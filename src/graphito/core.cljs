@@ -384,7 +384,7 @@
 (defn load-graph [json-file callback]
   (.json d3 json-file
          (fn [js-graph]
-           (callback (parse-js-graph js-graph)))))
+           (callback js-graph))))
 
 ;; Reactive
 
@@ -647,27 +647,34 @@
                         opts]
   (let [{graph-file "graphFile"
          gilbert-graph "gilbertGraph"
-         graph-object "graphObject"} (js->clj opts)
+         graph-object "graphObject"
+         initial-selection "initialSelection"} (js->clj opts)
         svg (setup-svg! container-selector)
         detail-button (.select d3 detail-button-selector)
         gesture-manager (hammer-manager svg)
         animation-subject (animation-subject)
         current-state (atom (initial-state svg
                                            detail-button
-                                           animation-subject))]
+                                           animation-subject))
+        set-state-for-graph-fn
+        (fn [js-graph]
+          (set-graph! current-state (parse-js-graph js-graph))
+          (when initial-selection
+            (select-and-zoom-to-node! current-state
+                                      ((:nodes @current-state) initial-selection))))]
     (prevent-focus-on-detail-button! detail-button)
     (sync-on-window-size! current-state)
     (cond
       gilbert-graph
       (let [[num-nodes p] gilbert-graph
             js-graph (clj->js (gen/gilbert-graph num-nodes p))]
-        (set-graph! current-state (parse-js-graph js-graph)))
+        (set-state-for-graph-fn js-graph))
 
       graph-file
-      (load-graph graph-file (partial set-graph! current-state))
+      (load-graph graph-file set-state-for-graph-fn)
       
       graph-object
-      (set-graph! current-state (parse-js-graph (clj->js graph-object))))
+      (set-state-for-graph-fn (clj->js graph-object)))
     (respond-to-resize! current-state)
     (move-camera-on-arrow-keys! current-state animation-subject)
     (move-camera-on-pan! gesture-manager current-state animation-subject)
