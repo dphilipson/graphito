@@ -341,11 +341,12 @@
                         :projection :fisheye
                         :camera-pos (v/copy pos)))
 
-(defn select-and-zoom-to-node! [current-state node]
-  (swap-state-animated! current-state assoc
-                        :projection :fisheye
-                        :camera-pos (v/copy (:pos node))
-                        :selected-node node))
+(defn select-and-zoom-to-node! [current-state node & {:keys [disable-animation?]}]
+  (let [swap-fn (if disable-animation? swap-state! swap-state-animated!)]
+    (swap-fn current-state assoc
+             :projection :fisheye
+             :camera-pos (v/copy (:pos node))
+             :selected-node node)))
 
 ;; JSON loading and parsing
 
@@ -661,7 +662,8 @@
           (set-graph! current-state (parse-js-graph js-graph))
           (when initial-selection
             (select-and-zoom-to-node! current-state
-                                      ((:nodes @current-state) initial-selection))))]
+                                      ((:nodes @current-state) initial-selection)
+                                      :disable-animation? true)))]
     (prevent-focus-on-detail-button! detail-button)
     (sync-on-window-size! current-state)
     (cond
