@@ -637,8 +637,7 @@
         click-fn #(let [{{:keys [title data]} :selected-node} @current-state
                         display-data (or data (filler/data-for-title title))]
                     (detail/show-modal modal-selector display-data))]
-    (.on detail-button "mouseup" click-fn)
-    (.on detail-button "touchend" click-fn)))
+    (.on detail-button "click" click-fn)))
 
 ;; Exported function to do magic
 
