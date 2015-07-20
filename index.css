@@ -10,6 +10,12 @@
   bottom: 60px;
 }
 
+#help-button {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+}
+
 .center-children {
   text-align: center;
 }

@@ -85,9 +85,6 @@
     (add-background! svg)
     svg))
 
-(defn prevent-focus-on-detail-button! [detail-button]
-  (.on detail-button "mouseup" #(-> detail-button .node .blur)))
-
 ;; Geometry
 
 (defn scroll-scale-for-state [state]
@@ -636,11 +633,12 @@
 ;; Detail button
 
 (defn show-details-on-button-click! [current-state modal-selector]
-  (let [detail-button (:detail-button @current-state)]
-    (.on detail-button "click"
-         #(let [{{:keys [title data]} :selected-node} @current-state
-                display-data (or data (filler/data-for-title title))]
-            (detail/show-modal modal-selector display-data)))))
+  (let [detail-button (:detail-button @current-state)
+        click-fn #(let [{{:keys [title data]} :selected-node} @current-state
+                        display-data (or data (filler/data-for-title title))]
+                    (detail/show-modal modal-selector display-data))]
+    (.on detail-button "mouseup" click-fn)
+    (.on detail-button "touchend" click-fn)))
 
 ;; Exported function to do magic
 
@@ -666,7 +664,6 @@
             (select-and-zoom-to-node! current-state
                                       ((:nodes @current-state) initial-selection)
                                       :disable-animation? true)))]
-    (prevent-focus-on-detail-button! detail-button)
     (sync-on-window-size! current-state)
     (cond
       gilbert-graph

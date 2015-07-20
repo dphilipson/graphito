@@ -15,20 +15,43 @@
   <body>
     <div id="container">
       <button id="node-detail-button" type="button" class="btn btn-primary btn-lg hidden">View Details</button> 
+      <button id="help-button" type="button" class="btn btn-default"><span class="glyphicon glyphicon-question-sign"></span></button>
     </div>
 
-    <div class="modal fade" id="myModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel">
+    <div class="modal fade" id="detail-modal" tabindex="-1" role="dialog" aria-labelledby="detail-modalLabel">
       <div class="modal-dialog" role="document">
         <div class="modal-content">
           <div class="modal-header">
             <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-            <h4 class="modal-title" id="myModalLabel">Modal title</h4>
+            <h4 class="modal-title" id="detail-modalLabel">Modal title</h4>
           </div>
           <div class="modal-body">
             <div class="center-children">
               <img class="mugshot">
             </div>
             <div class="container-fluid properties"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div> 
+
+    <div class="modal fade" id="help-modal" tabindex="-1" role="dialog">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+            <h4 class="modal-title">Help</h4>
+          </div>
+          <div class="modal-body">
+            <p><strong>Drag</strong> or <strong>swipe</strong> to move viewport, or <strong>tap</strong> nodes to select and zoom to them.</p>
+            <p><strong>Pinch</strong> to zoom out, then <strong>pinch-out</strong> or <strong>tap</strong> anywhere to zoom back in at that location.</p>
+            <p>If viewing on desktop, zoom out by pressing <strong>spacebar</strong> instead.</p>
+            <hr>
+            <p>If viewing on a mobile device, save this page to your home screen and open it from there to get a full-screen experience.</p>
+            <p>Optimized for iPhone. Android users may experience choppiness.</p>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
@@ -44,8 +67,19 @@
     <script src="lib/hammer.min.js" type="text/javascript"></script>
     <script src="release/graphito.js" type="text/javascript"></script>
     <script type="text/javascript">
+      $('#help-button').on('mouseup touchend', function() { $('#help-modal').modal(); });
+
+      function preventModalFromRestoringFocus(modal, button) {
+        $(modal).on('hidden.bs.modal', function() {
+          setTimeout(function() { $(button).blur(); });
+        });
+      }
+
+      preventModalFromRestoringFocus('#detail-modal', '#node-detail-button');
+      preventModalFromRestoringFocus('#help-modal', '#help-button');
+
       function displayGraph(opts) {
-        graphito.core.inhabit('#container', '#node-detail-button', '#myModal', opts);
+        graphito.core.inhabit('#container', '#node-detail-button', '#detail-modal', opts);
       }
 
       var GILBERT = {gilbertGraph: [25, 0.08]};
