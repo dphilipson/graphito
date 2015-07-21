@@ -637,7 +637,10 @@
         click-fn #(let [{{:keys [title data]} :selected-node} @current-state
                         display-data (or data (filler/data-for-title title))]
                     (detail/show-modal modal-selector display-data))]
-    (.on detail-button "click" click-fn)))
+    (.on detail-button "mouseup" click-fn)
+    ; A hack: the click event is sent a short time after the touchend event,
+    ; which will close the modal window. Add a delay first.
+    (.on detail-button "touchend" #(.timeout js/window click-fn 100))))
 
 ;; Exported function to do magic
 
